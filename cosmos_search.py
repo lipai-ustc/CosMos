@@ -110,7 +110,7 @@ class CoSMoSSearch:
         initial_atoms: Atoms,
         calculator,
         soap_species=None,
-        ds=0.2,              # 步长 (Å)
+        ds=0.2,              # 步长 (Å)  也是高斯势的宽度
         duplicate_tol=0.01,
         fmax=0.05,
         max_steps=500,
@@ -360,7 +360,7 @@ class CoSMoSSearch:
             f.write("CoSMoS Search Log\n")
             f.write(f"Initial structure: Energy = {self._get_real_energy(self.atoms):.6f} eV\n")
         
-        # 初始化当前结构为初始极小值
+        # 初始化当前结构为初始极小值结构
         current_atoms = self.atoms.copy()
         current_energy = self._get_real_energy(current_atoms)
         
