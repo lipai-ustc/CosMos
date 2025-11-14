@@ -1,5 +1,8 @@
 # CoSMoS Global Optimization Algorithm Implementation
 
+lipai@mail.sim.ac.cn  
+2025-11-14
+
 ## Project Overview
 This project implements the CoSMoS (Core-Sampled Mobility Search) global optimization algorithm for potential energy surface exploration of atomic clusters, aggressive defects in crystals, surface structures, and interface structures. The algorithm combines biased potential energy techniques with mobility control mechanisms to efficiently find minimum energy points on potential energy surfaces.
 
