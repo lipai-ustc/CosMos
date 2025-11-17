@@ -518,10 +518,10 @@ class CoSMoSSearch:
             test_atoms.set_positions(test_pos.reshape(-1, 3))
             test_atoms.calc = self.base_calc
             test_energy = test_atoms.get_potential_energy()
-            // 添加文献中的二次偏置势能 V_N = -0.5 * a * proj²
-            a = 1.0 / (self.ds ** 2)  // 使用ds参数计算a，保持与高斯势参数一致性
-            proj = delta_R * np.dot(N, rotated_N)  // 计算投影项 (r1 - r0)·N_i^0
-            V_N = -0.5 * a * (proj ** 2)  // 注意文献中要求的负号
+            # 添加文献中的二次偏置势能 V_N = -0.5 * a * proj²
+            a = 1.0 / (self.ds ** 2)  # 使用ds参数计算a，保持与高斯势参数一致性
+            proj = delta_R * np.dot(N, rotated_N)  # 计算投影项 (r1 - r0)·N_i^0
+            V_N = -0.5 * a * (proj ** 2)  # 注意文献中要求的负号
             test_energy += V_N
             
             # 记录最佳方向
