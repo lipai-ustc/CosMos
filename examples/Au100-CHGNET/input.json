@@ -1,0 +1,19 @@
+{
+  "system": {
+    "name": "Au100_surface"
+  },
+  "potential": {
+    "type": "chgnet",
+    "model": "pretrained"
+  },
+  "cosmos_search": {
+    "H": 15,
+    "w": 0.15,
+    "ds": 0.25,
+    "max_steps": 150
+  },
+  "output": {
+    "filename": "optimized_au100_surface.xyz",
+    "visualize": true
+  }
+}

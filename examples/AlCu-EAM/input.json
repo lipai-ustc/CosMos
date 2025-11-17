@@ -1,0 +1,20 @@
+{
+  "system": {
+    "name": "AlCu_alloy"
+  },
+  "potential": {
+    "type": "eam",
+    "filename": "AlCu.eam.alloy"
+  },
+  "cosmos_search": {
+    "H": 18,
+    "w": 0.18,
+    "ds": 0.28,
+    "max_steps": 200,
+    "temperature": 300
+  },
+  "output": {
+    "filename": "optimized_alcu_nanoparticle.xyz",
+    "print_energy": true
+  }
+}

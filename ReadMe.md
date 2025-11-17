@@ -1,71 +1,88 @@
-# CoSMoS Global Optimization Algorithm Implementation
+# CoSMoS: Global Structure Search Program
 
-## License
+## Table of Contents
+- [Overview](#overview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Input File Format](#input-file-format)
+- [Examples](#examples)
+- [Output](#output)
+- [References](#references)
+- [Copyright](#copyright)
 
-This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+## Overview
+CoSMoS (Global Structure Search Program) is a tool for finding stable atomic structures using advanced optimization algorithms.
 
-### GNU General Public License v3.0 Summary
+## Installation
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package manager)
+- ASE (Atomic Simulation Environment)
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+### Install from source
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/cosmos.git
+cd cosmos
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Install in development mode (editable)
+pip install -e .
 
-lipai@mail.sim.ac.cn  
-2025-11-14
-
-## Project Overview
-This project implements the CoSMoS (Core-Sampled Mobility Search) global optimization algorithm for potential energy surface exploration of atomic clusters, aggressive defects in crystals, surface structures, and interface structures. The algorithm combines biased potential energy techniques with mobility control mechanisms to efficiently find minimum energy points on potential energy surfaces.
-
-## Installation Instructions
-### Dependencies
-- Python 3.8+
-- numpy
-- ase
-- dscribe
-
-### Installation Steps
-1. Clone or download this project to your local machine
-2. Run the installation script:
-   ```bash
-   sh install.sh
-   ```
+# Or install system-wide
+pip install .
+```
 
 ## Usage
+
 ### Basic Usage
-```python
-from cosmos_search import CoSMoSSearch
-from ase import Atoms
+CoSMoS requires two input files in the working directory:
+1. `input.json` - Calculation parameters configuration file
+2. `init.xyz` - Initial structure file
 
-# Create initial atomic structure
-atoms = Atoms('H2O', positions=[[0,0,0], [0,1,0], [1,0,0]])
+Run the program with default files:
+```bash
+# Basic execution
+cosmos
 
-# Initialize calculator (example uses EMT calculator)
-from ase.calculators.emt import EMT
-calc = EMT()
-
-# Create CoSMoS search instance
-cosmos = CoSMoSSearch(
-    initial_atoms=atoms,
-    calculator=calc,
-    H=14,               # Number of Gaussian potentials
-    w=0.1,              # Gaussian potential height (eV)
-    temperature=300,    # Temperature (K)
-    mobility_control=True,  # Enable mobility control
-    control_radius=5.0   # Core region radius (Å)
-)
-
-# Run search
-cosmos.run(steps=100)
+# Or using the Python script directly
+python cosmos_run.py
 ```
+
+### Example Execution
+For the AlCu-EAM example:
+```bash
+# Navigate to example directory
+cd examples/AlCu-EAM
+
+# Generate initial structure (if needed)
+python generate_structure.py
+
+# Run structure search
+python ../../cosmos_run.py
+```
+
+## Input File Format
+
+### input.json Configuration
+- `system`: System information
+  - `name`: System name (optional)
+  - `pbc`: Periodic boundary conditions, format [x, y, z] (boolean values)
+
+- `potential`: Potential settings
+  - `type`: Potential type (eam/chgnet/deepmd/etc.)
+  - `file`: Potential file path (for EAM type)
+
+- `cosmos_search`: Search parameters
+  - `H`: Number of hidden states
+  - `w`: Weight parameter
+  - `ds`: Step size parameter
+  - `max_steps`: Maximum search steps
+  - `temperature`: Simulation temperature (optional)
+
+- `output`: Output settings
+  - `filename`: Output structure filename
+  - `print_energy`: Whether to print energy information
 
 ### Main Parameters
 | Parameter | Description | Default Value |
@@ -81,6 +98,17 @@ cosmos.run(steps=100)
 | `wall_strength` | Wall potential strength (eV/Å²) | 10.0 |
 | `wall_offset` | Wall potential distance offset (Å) | 2.0 |
 
+## Examples
+Example directories are provided in the `examples/` folder:
+- `AlCu-EAM`: Aluminum-Copper alloy example with EAM potential
+- `Au100-CHGNET`: Gold surface example with CHGNET potential
+- `C60-deepmd`: Carbon-60 example with DeepMD potential
+
+Each example contains:
+- `input.json`: Calculation parameters
+- `init.xyz`: Initial atomic structure
+- Potential files (where required)
+
 ## Output
 Optimization results will be saved in the `cosmos_output` directory, containing atomic structures and energy information for each step.
 
@@ -94,3 +122,4 @@ Copyright (c) 2025 CoSMoS Development Team. All rights reserved.
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
