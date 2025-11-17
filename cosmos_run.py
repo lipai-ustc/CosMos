@@ -7,14 +7,44 @@ CoSMoS全局优化运行脚本
 使用方法: python cosmos_run.py -p POSCAR -d potential.pb -o cosmos_results
 """
 import os
+import json
 import argparse
+from pathlib import Path
 import numpy as np
 from ase.io import read
 from ase.calculators.deepmd import DeepMD
 from cosmos_search import CoSMoSSearch
+from cosmos_utils import load_potential
 
+
+def load_config(config_path):
+    """Load configuration from JSON file"""
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
 def main():
+    # Get current working directory where input files should be
+    cwd = os.getcwd()
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='CoSMoS Global Structure Search')
+    parser.add_argument('-i', '--input', default=os.path.join(cwd, 'input.json'),
+                      help='Path to input configuration file (default: ./input.json)')
+    parser.add_argument('-s', '--structure', default=os.path.join(cwd, 'init.xyz'),
+                      help='Path to initial structure file (default: ./init.xyz)')
+    args = parser.parse_args()
+
+    # Validate input files exist
+    if not os.path.exists(args.input):
+        raise FileNotFoundError(f"Input file not found: {args.input}")
+    if not os.path.exists(args.structure):
+        raise FileNotFoundError(f"Structure file not found: {args.structure}")
+
+    # Load configuration and structure
+    config = load_config(args.input)
+    atoms = load_initial_structure(args.structure)
+
+    # 根据配置创建系统...
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='使用CoSMoS算法进行全局结构优化')
     parser.add_argument('-p', '--poscar', required=True, help='POSCAR结构文件路径')
@@ -42,7 +72,7 @@ def main():
     print(f"加载DeepMD势能: {args.deepmd}")
     dp_calculator = DeepMD(potential=args.deepmd)
 
-    # 初始化SSW搜索，以盒子中心为核心区
+    # 初始化SSW搜索，以盒子核心为核心区
     print("初始化CoSMoS搜索...")
     ssw = CoSMoSSearch(
         initial_atoms=atoms,

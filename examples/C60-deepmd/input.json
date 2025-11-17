@@ -1,0 +1,19 @@
+{
+  "system": {
+    "name": "C60_structure"
+  },
+  "potential": {
+    "type": "deepmd",
+    "model": "dp_model.pb"
+  },
+  "cosmos_search": {
+    "H": 20,
+    "w": 0.2,
+    "ds": 0.3,
+    "max_steps": 200
+  },
+  "output": {
+    "filename": "optimized_c60_structure.xyz",
+    "visualize": true
+  }
+}
