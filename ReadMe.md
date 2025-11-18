@@ -67,7 +67,6 @@ python ../../cosmos_run.py
 ### input.json Configuration
 - `system`: System information
   - `name`: System name (optional)
-  - `pbc`: Periodic boundary conditions, format [x, y, z] (boolean values)
 
 - `potential`: Potential settings
   - `type`: Potential type (eam/chgnet/deepmd/etc.)

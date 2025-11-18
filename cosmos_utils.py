@@ -2,16 +2,17 @@ import numpy as np
 
 
 def rotate_vector(v, axis, angle):
-    """使用罗德里格斯公式旋转向量
-    参考: https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
-    
-    参数:
-        v: 待旋转的向量
-        axis: 旋转轴向量
-        angle: 旋转角度(弧度)
-    
-    返回:
-        旋转后的向量
+    """
+    Rotate vector using Rodrigues' rotation formula
+    Reference: https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
+
+    Parameters:
+    v: Vector to be rotated
+    axis: Rotation axis vector
+    angle: Rotation angle (radians)
+
+    Returns:
+    Rotated vector
     """
     v = np.asarray(v)
     axis = np.asarray(axis)
@@ -27,7 +28,9 @@ import importlib
 from ase.calculators import eam
 
 def load_potential(potential_config):
-    """根据配置自动加载不同类型的势函数计算器"""
+    """
+    Automatically load different types of potential calculators based on configuration
+    """
     pot_type = potential_config['type'].lower()
     
     if pot_type == 'eam':
@@ -42,7 +45,7 @@ def load_potential(potential_config):
         return DP(model=potential_config['model'])
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
-        # 解析LAMMPS势函数配置
+        # Parse LAMMPS potential configuration
         lammps_commands = potential_config['commands']
         return LAMMPSlib(lmpcmds=lammps_commands)
     else:

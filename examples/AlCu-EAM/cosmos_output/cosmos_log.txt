@@ -1,0 +1,2 @@
+CoSMoS Search Log
+Initial structure: Energy = -153.044397 eV
