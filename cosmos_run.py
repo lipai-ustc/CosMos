@@ -21,8 +21,10 @@ def load_initial_structure(structure_path):
 
 def load_calculator(config):
     """Dynamically load calculator based on configuration"""
-    calculator_type = config.get('calculator_type', 'deepmd').lower()
-    potential_path = config.get('potential_path')
+    # Get type and path from potential object
+    potential_config = config.get('potential', {})
+    calculator_type = potential_config.get('type', 'CHGNET').lower()
+    potential_path = potential_config.get('filename')
     
     if not potential_path or not os.path.exists(potential_path):
         raise FileNotFoundError(f"Potential file not found: {potential_path}")
@@ -69,42 +71,51 @@ def main():
     # Load structure
     atoms = load_initial_structure(structure_path)
     
-    # Calculate box center coordinates
-    cell = atoms.get_cell()
-    box_center = np.mean(cell, axis=0) / 2
-    print(f"Box center coordinates: {box_center} Å")
-    
-    # Load appropriate calculator based on configuration
-    print(f"Loading {config.get('calculator_type', 'deepmd')} potential: {config.get('potential_path')}")
+    # Load calculator before initializing CoSMoSSearch
     calculator = load_calculator(config)
+    if calculator is None:
+        raise ValueError("Failed to initialize calculator")
     
-    # Initialize CoSMoS search with all parameters from configuration
-    print("Initializing CoSMoS search...")
-    ssw = CoSMoSSearch(
+    # Get output directory from config with default
+    output_dir = config['output'].get('output_dir', 'cosmos_output')
+    
+    # Calculate default control center (box center)
+    cell = atoms.get_cell()
+    default_control_center = np.mean(cell, axis=0)/2 if np.any(cell) else np.array([5.0, 5.0, 5.0])
+    
+    cosmos = CoSMoSSearch(
         initial_atoms=atoms,
         calculator=calculator,
-        # Get all parameters from config with appropriate defaults
-        ds=config.get('ds', 0.2),
-        output_dir=config.get('output_dir', 'cosmos_results'),
-        H=config.get('H', 14),
-        temperature=config.get('temperature', 300),
-        mobility_control=config.get('mobility_control', True),
-        control_type=config.get('control_type', 'sphere'),
-        control_center=box_center,
-        control_radius=config.get('control_radius', 10.0),
-        decay_type=config.get('decay_type', 'gaussian'),
-        decay_length=config.get('decay_length', 5.0),
-        # Add any other parameters from config
-        **config.get('additional_parameters', {})
+        output_dir=output_dir,  # Now properly defined
+        # Basic search parameters (with defaults)
+        H=config['cosmos_search'].get('H', 20),
+        w=config['cosmos_search'].get('w', 0.1),
+        ds=config['cosmos_search'].get('ds', 0.2),
+        max_steps=config['cosmos_search'].get('max_steps', 1000),
+        temperature=config['cosmos_search'].get('temperature', 300),
+        radius=config['cosmos_search'].get('radius', 5.0),
+        decay=config['cosmos_search'].get('decay', 0.99),
+        # Basic wall potential parameters
+        wall_strength=config['cosmos_search'].get('wall_strength', 0.0),
+        wall_offset=config['cosmos_search'].get('wall_offset', 2.0),
+        # Wall type control parameters (new)
+        mobility_control=config['cosmos_search'].get('mobility_control', False),
+        control_type=config['cosmos_search'].get('control_type', 'sphere'),  # Sphere/plane control
+        control_center=config['cosmos_search'].get('control_center', default_control_center),
+        control_radius=config['cosmos_search'].get('control_radius', 10.0),
+        plane_normal=config['cosmos_search'].get('plane_normal', [0, 0, 1]),  # Plane normal vector
+        decay_type=config['cosmos_search'].get('decay_type', 'gaussian'),
+        decay_length=config['cosmos_search'].get('decay_length', 5.0),
+        **config.get('additional_parameters', {})  # Add any other parameters from config
     )
     
     # Run CoSMoS global optimization
     steps = config.get('steps', 100)
     print(f"Starting CoSMoS global search with {steps} steps...")
-    ssw.run(steps=steps)
+    cosmos.run(steps=steps)
     
     # Get results and output summary
-    minima_pool = ssw.get_minima_pool()
+    minima_pool = cosmos.get_minima_pool()
     energies = [minima.get_potential_energy() for minima in minima_pool]
     
     print("\nCoSMoS search completed!")
