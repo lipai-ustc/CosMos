@@ -1,3 +1,16 @@
+Metadata-Version: 2.1
+Name: cosmos
+Version: 0.1.0
+Summary: CoSMoS: Global Structure Search Program for atomic clusters and molecules
+Home-page: https://github.com/yourusername/cosmos
+Author: CoSMoS Development Team
+Author-email: cosmos@example.com
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
 # CoSMoS: Global Structure Search Program
 
 ## Table of Contents
@@ -65,44 +78,23 @@ python ../../cosmos_run.py
 ## Input File Format
 
 ### input.json Configuration
-
-#### System and Potential
 - `system`: System information
   - `name`: System name (optional)
 
 - `potential`: Potential settings
-  - `type`: Potential type (eam/chgnet/deepmd)
-  - `model`: Model file path or name (for all types)
+  - `type`: Potential type (eam/chgnet/deepmd/etc.)
+  - `file`: Potential file path (for EAM type)
 
-#### Monte Carlo Layer
-- `monte_carlo`: Monte Carlo parameters
-  - `steps`: Total number of MC steps (default: 100)
-  - `temperature`: Temperature for Metropolis criterion in K (default: 300)
+- `cosmos_search`: Search parameters
+  - `H`: Number of hidden states
+  - `w`: Weight parameter
+  - `ds`: Step size parameter
+  - `max_steps`: Maximum search steps
+  - `temperature`: Simulation temperature (optional)
 
-#### Climbing Layer
-- `climbing`: Climbing phase parameters
-  - `gaussian_height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.1)
-  - `gaussian_width`: Width of Gaussian potentials in Å (ds parameter, default: 0.2)
-  - `max_gaussians`: Maximum number of Gaussians per climbing (H parameter, default: 14)
-  - `optimizer`: Local optimization settings
-    - `max_steps`: Maximum optimization steps (default: 500)
-    - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
-
-#### Mobility Control Layer (Optional)
-- `mobility_control`: Spatial constraint settings
-  - `enabled`: Enable mobility control (default: False)
-  - `control_type`: Type of control region ('sphere' or 'plane', default: 'sphere')
-  - `control_center`: Center of control region [x, y, z] (default: box center)
-  - `control_radius`: Radius of core region in Å (default: 10.0)
-  - `decay_type`: Weight decay type ('gaussian', 'linear', or 'none', default: 'gaussian')
-  - `decay_length`: Decay length scale in Å (default: 5.0)
-  - `wall_potential`: Wall potential settings
-    - `strength`: Wall potential strength in eV/Å² (default: 0.0)
-    - `offset`: Wall offset distance in Å (default: 2.0)
-
-#### Output
 - `output`: Output settings
-  - `directory`: Output directory name (default: 'cosmos_output')
+  - `filename`: Output structure filename
+  - `print_energy`: Whether to print energy information
 
 ### Main Parameters
 | Parameter | Description | Default Value |
@@ -130,10 +122,7 @@ Each example contains:
 - Potential files (where required)
 
 ## Output
-Optimization results will be saved in the `cosmos_output` directory (or custom directory specified in config), containing:
-- `all_minima.xyz`: All found minimum energy structures in a single trajectory file
-- `best_str.xyz`: The lowest energy structure found during the search
-- `cosmos_log.txt`: Detailed log of the search process with energies at each step
+Optimization results will be saved in the `cosmos_output` directory, containing atomic structures and energy information for each step.
 
 ## References
 1. Shang, R., & Liu, J. (2013). Stochastic surface walking method for global optimization of atomic clusters and biomolecules. The Journal of Chemical Physics, 139(24), 244104.

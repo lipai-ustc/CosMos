@@ -6,14 +6,32 @@
     "type": "chgnet",
     "model": "pretrained"
   },
-  "cosmos_search": {
-    "H": 15,
-    "w": 0.15,
-    "ds": 0.25,
-    "max_steps": 150
+  "monte_carlo": {
+    "steps": 100,
+    "temperature": 300
+  },
+  "climbing": {
+    "gaussian_height": 0.15,
+    "gaussian_width": 0.25,
+    "max_gaussians": 15,
+    "optimizer": {
+      "max_steps": 150,
+      "fmax": 0.05
+    }
+  },
+  "mobility_control": {
+    "enabled": false,
+    "control_type": "sphere",
+    "control_center": null,
+    "control_radius": 10.0,
+    "decay_type": "gaussian",
+    "decay_length": 5.0,
+    "wall_potential": {
+      "strength": 0.0,
+      "offset": 2.0
+    }
   },
   "output": {
-    "filename": "optimized_au100_surface.xyz",
-    "visualize": true
+    "directory": "cosmos_output"
   }
 }
