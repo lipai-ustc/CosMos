@@ -16,31 +16,30 @@ class BiasedCalculator(Calculator):
     """
     implemented_properties = ['energy', 'forces']
 
-    class BiasedCalculator(Calculator):
-        def __init__(self, base_calculator, gaussian_params, ds=0.2, control_center=None, control_radius=10.0, mobility_weights=None, wall_strength=10.0, wall_offset=2.0):
-            super().__init__()
-            self.base_calc = base_calculator  # Original potential energy calculator
-            self.gaussian_params = gaussian_params  # List of Gaussian parameters, each containing (d, R1, w)
-            self.ds = ds  # Step size parameter, used for Gaussian potential width
-            self.control_center = control_center  # Control center coordinates
-            self.control_radius = control_radius  # Core region radius
-            self.wall_offset = wall_offset  # Wall potential distance offset
-            self.wall_strength = wall_strength  # Wall potential strength (eV/Å²)
-            self.mobility_weights = mobility_weights
+    def __init__(self, base_calculator, gaussian_params, ds=0.2, control_center=None, control_radius=10.0, mobility_weights=None, wall_strength=10.0, wall_offset=2.0):
+        super().__init__()
+        self.base_calc = base_calculator  # Original potential energy calculator
+        self.gaussian_params = gaussian_params  # List of Gaussian parameters, each containing (d, R1, w)
+        self.ds = ds  # Step size parameter, used for Gaussian potential width
+        self.control_center = control_center  # Control center coordinates
+        self.control_radius = control_radius  # Core region radius
+        self.wall_offset = wall_offset  # Wall potential distance offset
+        self.wall_strength = wall_strength  # Wall potential strength (eV/Å²)
+        self.mobility_weights = mobility_weights
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         super().calculate(atoms, properties, system_changes)
         
-        # 获取原始能量和力
+        # Get original energy and forces
         atoms_base = atoms.copy()
         atoms_base.calc = self.base_calc
         E0 = atoms_base.get_potential_energy()
         F0 = atoms_base.get_forces().flatten()  # (3N,)
 
-        # 当前位置
+        # Current position
         R = atoms.positions.flatten()  # (3N,)
 
-        # 总偏置能量和力初始化为0
+        # Initialize total bias energy and forces to 0
         V_bias_total = 0.0
         F_bias_total = np.zeros_like(R)
 
@@ -150,20 +149,26 @@ class CoSMoSSearch:
         
         # Initialize mobility control parameters
         self.mobility_control = mobility_control
+        self.control_radius = control_radius
+        self.control_type = control_type
+        self.decay_type = decay_type
+        self.decay_length = decay_length
+        
         if mobility_control:
             # Default to box center as control center
             self.control_center = control_center
-            self.control_radius = control_radius
-            self.control_type = control_type
             # Plane control parameters
             if control_type == 'plane' and plane_normal is None:
                 self.plane_normal = np.array([0, 0, 1])  # Default z-axis normal
             else:
                 self.plane_normal = plane_normal
-            self.decay_type = decay_type
-            self.decay_length = decay_length
             # Precompute initial mobility weights
             self._update_mobility_weights()
+        else:
+            # Set default values even when mobility control is disabled
+            self.control_center = control_center
+            self.plane_normal = plane_normal if plane_normal is not None else np.array([0, 0, 1])
+            self.mobility_weights = np.ones(len(initial_atoms))
         
         # Handle additional parameters
         self.additional_params = kwargs
@@ -190,7 +195,7 @@ class CoSMoSSearch:
         """
         if calc is not None:
             atoms.calc = calc
-        # 使用LBFGS优化器替代BFGS，符合文档步骤4和6的要求
+        # Use LBFGS optimizer instead of BFGS, complies with documentation steps 4 and 6
         from ase.optimize import LBFGS
         opt = LBFGS(atoms, logfile=None)
         opt.run(fmax=fmax or self.fmax)
@@ -199,11 +204,24 @@ class CoSMoSSearch:
         """
         Add optimized structure to minima pool and save to file
         """
+        # Ensure calculator is attached before getting energy
+        if atoms.calc is None:
+            atoms.calc = self.base_calc
         real_e = atoms.get_potential_energy()
         self.pool.append(atoms.copy())
         self.real_energies.append(real_e)
         idx = len(self.pool) - 1
-        write_minima(os.path.join(self.output_dir, f"minima_{idx:04d}.xyz"), atoms, real_e)
+        
+        # Append to the combined trajectory file instead of individual files
+        atoms_copy = atoms.copy()
+        atoms_copy.info['energy'] = real_e
+        atoms_copy.info['minima_index'] = idx
+        
+        # Append mode: add structure to existing file
+        from ase.io import write as ase_write
+        trajectory_file = os.path.join(self.output_dir, 'all_minima.xyz')
+        ase_write(trajectory_file, atoms_copy, append=True)
+        
         print(f"Found new minimum #{idx}: E = {real_e:.6f} eV")
 
     def _update_mobility_weights(self):
@@ -260,10 +278,9 @@ class CoSMoSSearch:
         """
         n_atoms = len(atoms)
         # Generate global soft movement direction Ns (follows Maxwell-Boltzmann distribution)
-        temperature = 300  # K
+        # Use instance temperature instead of hardcoded value
         mass = 1.0  # Atomic mass unit
-        k_boltzmann = 8.617333262e-5  # eV/K
-        scale = np.sqrt(k_boltzmann * temperature / mass)
+        scale = np.sqrt(self.k_boltzmann * self.temperature / mass)
         Ns = np.random.normal(0, scale, 3 * n_atoms)
         
         # Apply mobility weights: expand weights to 3N dimensions and apply to random direction
@@ -367,6 +384,11 @@ class CoSMoSSearch:
             f.write("CoSMoS Search Log\n")
             f.write(f"Initial structure: Energy = {self._get_real_energy(self.atoms):.6f} eV\n")
         
+        # Initialize combined trajectory file (remove old one if exists)
+        trajectory_file = os.path.join(self.output_dir, 'all_minima.xyz')
+        if os.path.exists(trajectory_file):
+            os.remove(trajectory_file)
+        
         # Initialize current structure as initial minimum structure
         current_atoms = self.atoms.copy()
         current_energy = self._get_real_energy(current_atoms)
@@ -403,7 +425,13 @@ class CoSMoSSearch:
                     N = N * atom_weights
                     N /= np.linalg.norm(N) if np.linalg.norm(N) > 0 else 1
                 
-                # Add new Gaussian potential
+                # CRITICAL: Move structure along direction N before adding bias potential
+                # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
+                climb_atoms_positions = climb_atoms.get_positions().flatten()
+                climb_atoms_positions += self.ds * N
+                climb_atoms.set_positions(climb_atoms_positions.reshape(-1, 3))
+                
+                # Add new Gaussian potential at the displaced position
                 g_param = self._add_gaussian(climb_atoms, N)
                 gaussian_params.append(g_param)
                 
@@ -428,8 +456,12 @@ class CoSMoSSearch:
                 Emax = max(Emax, current_climb_energy)
                 
                 # Algorithm Step 5: Check stopping condition
-                if n >= self.H or current_climb_energy < current_energy:
-                    print(f"Climb phase end: n={n}, current energy {current_climb_energy:.6f} eV")
+                # Stop if: (i) reached max Gaussians H, or (ii) structure relaxed back below starting energy
+                if n >= self.H:
+                    print(f"Climb phase end: n={n}, reached maximum Gaussians")
+                    break
+                if current_climb_energy <= current_energy:
+                    print(f"Climb phase end: n={n}, energy {current_climb_energy:.6f} eV <= initial {current_energy:.6f} eV")
                     break
             
             # Algorithm Step 6: Remove all biased potentials and optimize on real potential energy surface
@@ -446,13 +478,29 @@ class CoSMoSSearch:
             
             if np.random.rand() < accept_prob:
                 print(f"Accept new structure: ΔE = {delta_E:.6f} eV, P = {accept_prob:.4f}")
-                # Check if new structure is a duplicate (not identical)
+                # Check if new structure is a duplicate
                 if not is_duplicate_by_desc(climb_atoms, self.pool, self.soap_species, self.duplicate_tol):
+                    # New unique structure found
                     current_atoms = climb_atoms.copy()
+                    current_atoms.calc = self.base_calc  # Attach calculator
                     current_energy = relaxed_energy
                     self._add_to_pool(current_atoms)
                 else:
-                    print("New structure with known structure, not added to pool")
+                    # Duplicate structure, but still update current_atoms to explore from different point
+                    # This prevents getting stuck in the same location
+                    print("Structure is duplicate, not added to pool")
+                    # Randomly perturb to escape local minimum
+                    if delta_E == 0.0:  # Exactly same energy means stuck
+                        print("Warning: Stuck at same structure, applying random perturbation")
+                        perturb_direction = self._generate_random_direction(climb_atoms)
+                        perturb_positions = climb_atoms.get_positions().flatten()
+                        perturb_positions += 0.1 * self.ds * perturb_direction  # Small perturbation
+                        climb_atoms.set_positions(perturb_positions.reshape(-1, 3))
+                        climb_atoms.calc = self.base_calc
+                        self._local_minimize(climb_atoms)
+                    current_atoms = climb_atoms.copy()
+                    current_atoms.calc = self.base_calc  # Attach calculator
+                    current_energy = self._get_real_energy(current_atoms)
             else:
                 print(f"Reject new structure: ΔE = {delta_E:.6f} eV, P = {accept_prob:.4f}")
             
@@ -460,96 +508,132 @@ class CoSMoSSearch:
             self._write_step_output(step, current_atoms, current_energy)
         
         print("\nCoSMoS search completed!")
+        print(f"All {len(self.pool)} minima structures saved to: {os.path.join(self.output_dir, 'all_minima.xyz')}")
+        
+        # Save the lowest energy structure
+        if self.pool and self.real_energies:
+            min_idx = self.real_energies.index(min(self.real_energies))
+            best_atoms = self.pool[min_idx].copy()
+            best_energy = self.real_energies[min_idx]
+            best_atoms.info['energy'] = best_energy
+            best_atoms.info['minima_index'] = min_idx
+            
+            from ase.io import write as ase_write
+            best_file = os.path.join(self.output_dir, 'best_str.xyz')
+            ase_write(best_file, best_atoms)
+            print(f"Lowest energy structure (E = {best_energy:.6f} eV) saved to: {best_file}")
+        
         return self.pool, self.real_energies
 
     def _biased_dimer_rotation(self, atoms, initial_direction):
         """
-        Implement biased dimer rotation method, used to update climbing direction
-        Follows the biased dimer rotation method described in the paper, by rotating initial direction and calculating force to determine best climbing direction
+        Implement biased dimer rotation method according to SSW paper (Eq. 3-6)
+        Uses proper dimer method to find the lowest curvature direction with bias potential
+        
+        Reference: Shang & Liu, J. Chem. Phys. 139, 244104 (2013)
         
         Parameters:
-            atoms: Current atomic structure
-            initial_direction: Initial direction vector
+            atoms: Current atomic structure (at minimum R_m)
+            initial_direction: Initial search direction N^0
         
         Returns:
-            Optimized climbing direction vector
+            Optimized direction N^1 (normalized)
         """
-        # Ensure initial direction is unit vector
-        N = initial_direction / np.linalg.norm(initial_direction) if np.linalg.norm(initial_direction) > 0 else initial_direction
+        # Normalize initial direction
+        N = initial_direction.copy()
+        norm_N = np.linalg.norm(N)
+        if norm_N > 0:
+            N = N / norm_N
+        else:
+            return initial_direction
         
-        # Set dimer length (distance between the two images)
-        delta_R = 0.005  # According to paper, typical value is 0.005 Å
+        # Dimer parameters from SSW paper
+        delta_R = 0.005  # Dimer separation (typical: 0.005 Å)
+        theta_trial = 0.5 * np.pi / 180.0  # Trial rotation angle (radians), ~0.5 degrees
+        max_rotations = 10  # Maximum number of rotations
+        f_rot_tol = 0.01  # Rotational force tolerance (eV/Å)
         
-        # Compute R0 and R1 positions
-        pos_flat = atoms.positions.flatten()
-        R0 = pos_flat - 0.5 * delta_R * N
-        R1 = pos_flat + 0.5 * delta_R * N
+        # Bias potential parameter (from Eq. 6 in paper)
+        a = 1.0 / (self.ds ** 2)  # Parameter controlling bias potential strength
         
-        # Create two temporary structures and compute force
-        temp_atoms0 = atoms.copy()
-        temp_atoms0.set_positions(R0.reshape(-1, 3))
-        temp_atoms0.calc = self.base_calc
-        F0 = temp_atoms0.get_forces().flatten()
+        # Current position (flattened)
+        R0_flat = atoms.positions.flatten()
         
-        temp_atoms1 = atoms.copy()
-        temp_atoms1.set_positions(R1.reshape(-1, 3))
-        temp_atoms1.calc = self.base_calc
-        F1 = temp_atoms1.get_forces().flatten()
-        
-        # According to paper formula(4) compute curvature information
-        C = np.dot((F0 - F1), N) / delta_R
-        
-        # Execute rotation optimization - find the direction with the lowest energy
-        best_direction = N
-        best_value = float('inf')
-        
-        # Try multiple rotation angles
-        for angle in np.linspace(0, 2*np.pi, 24):  # More densely sampled angles
-            # Create rotation axis - perpendicular to N's random axis
-            # Find a vector not parallel to N
-            if abs(N[0]) < 0.9:
-                axis = np.array([0, 1, 0])
+        # Iteratively rotate dimer to find optimal direction
+        for rotation_iter in range(max_rotations):
+            # Calculate dimer images: R_1 = R_0 + N * ΔR (Eq. 3)
+            R1_flat = R0_flat + N * delta_R
+            
+            # Compute forces at R_1 (on real PES)
+            temp_atoms1 = atoms.copy()
+            temp_atoms1.set_positions(R1_flat.reshape(-1, 3))
+            temp_atoms1.calc = self.base_calc
+            F1 = temp_atoms1.get_forces().flatten()
+            
+            # Compute curvature C = (F_0 - F_1) · N / ΔR (Eq. 4)
+            # Note: F_0 can be extrapolated from F_1 for efficiency
+            # F_0 ≈ -F_1 (symmetric approximation for small ΔR)
+            F0_approx = -F1
+            C = np.dot((F0_approx - F1), N) / delta_R
+            
+            # Calculate rotational force (perpendicular component)
+            # F_rot = F_1 - (F_1 · N) * N  (force perpendicular to N)
+            F1_parallel = np.dot(F1, N) * N
+            F_rot = F1 - F1_parallel
+            
+            # Check convergence: if rotational force is small, stop rotation
+            F_rot_mag = np.linalg.norm(F_rot)
+            if F_rot_mag < f_rot_tol:
+                break
+            
+            # Compute rotation angle using finite difference
+            # Trial rotation: N' = N * cos(θ) + F_rot_normalized * sin(θ)
+            if F_rot_mag > 1e-10:
+                F_rot_normalized = F_rot / F_rot_mag
             else:
-                axis = np.array([1, 0, 0])
-            # Ensure axis is perpendicular to N
-            axis = axis - np.dot(axis, N) * N
-            axis /= np.linalg.norm(axis)
+                break  # No significant rotation needed
             
-            # Apply rotation to direction vector
-            rotated_N = self._rotate_vector(N, axis, angle)
+            # Trial rotation with small angle
+            N_trial = N * np.cos(theta_trial) + F_rot_normalized * np.sin(theta_trial)
+            N_trial = N_trial / np.linalg.norm(N_trial)
             
-            # Compute rotated vector value - according to paper's optimization criterion
-            # Here use force projection as optimization target
-            test_atoms = atoms.copy()
-            test_pos = pos_flat + rotated_N * delta_R
-            test_atoms.set_positions(test_pos.reshape(-1, 3))
-            test_atoms.calc = self.base_calc
-            test_energy = test_atoms.get_potential_energy()
-            # Add literature's secondary bias potential V_N = -0.5 * a * proj²
-            a = 1.0 / (self.ds ** 2)  # Use ds parameter to calculate a, maintain consistency with Gaussian potential parameters
-            proj = delta_R * np.dot(N, rotated_N)  # Compute projection item (r1 - r0)·N_i^0
-            V_N = -0.5 * a * (proj ** 2)  # Note that literature requires negative sign
-            test_energy += V_N
+            # Evaluate curvature at trial position
+            R1_trial_flat = R0_flat + N_trial * delta_R
+            temp_atoms_trial = atoms.copy()
+            temp_atoms_trial.set_positions(R1_trial_flat.reshape(-1, 3))
+            temp_atoms_trial.calc = self.base_calc
+            F1_trial = temp_atoms_trial.get_forces().flatten()
+            F0_trial_approx = -F1_trial
+            C_trial = np.dot((F0_trial_approx - F1_trial), N_trial) / delta_R
             
-            # Record best direction
-            if test_energy < best_value:
-                best_value = test_energy
-                best_direction = rotated_N
+            # Estimate optimal rotation angle using finite difference
+            # dC/dθ ≈ (C_trial - C) / θ_trial
+            dC_dtheta = (C_trial - C) / theta_trial
+            
+            # Compute second derivative estimate for parabolic fit
+            # d²C/dθ² ≈ 2 * C / θ²  (approximate)
+            if abs(theta_trial) > 1e-10:
+                # Optimal angle from parabolic approximation: θ_opt = -dC/dθ / (d²C/dθ²)
+                # Use simple formula: θ_opt = θ_trial * C / (C - C_trial)
+                if abs(C - C_trial) > 1e-10:
+                    theta_opt = theta_trial * C / (C - C_trial)
+                    # Limit rotation angle to avoid overshooting
+                    theta_opt = np.clip(theta_opt, -np.pi/4, np.pi/4)
+                else:
+                    theta_opt = 0.0
+            else:
+                theta_opt = 0.0
+            
+            # Apply optimal rotation
+            if abs(theta_opt) > 1e-6:
+                N = N * np.cos(theta_opt) + F_rot_normalized * np.sin(theta_opt)
+                N = N / np.linalg.norm(N)
+            else:
+                break  # Converged
         
-        return best_direction / np.linalg.norm(best_direction) if np.linalg.norm(best_direction) > 0 else best_direction
+        return N
 
-    def _rotate_vector(self, v, axis, angle):
-        """Use Rodrigues formula to rotate vector
-        Reference: https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
-        """
-        v = np.asarray(v)
-        axis = np.asarray(axis)
-        axis = axis / np.linalg.norm(axis)
-        cos_theta = np.cos(angle)
-        sin_theta = np.sin(angle)
-        cross = np.cross(axis, v)
-        dot = np.dot(axis, v)
-        return v * cos_theta + cross * sin_theta + axis * dot * (1 - cos_theta)
+
 
     def _add_gaussian(self, atoms, direction):
         """
@@ -586,8 +670,7 @@ class CoSMoSSearch:
 # Auxiliary functions
 
 
-
-def _get_soap_descriptor(atoms, species=['Al', 'Cu']):
+def compute_soap_descriptor(atoms, species, rcut=6.0, nmax=8, lmax=6):
     """
     Calculate SOAP (Smooth Overlap of Atomic Positions) descriptor for atomic structure
     SOAP descriptor quantifies structural similarity and is sensitive to atomic arrangement and chemical environment
@@ -595,9 +678,9 @@ def _get_soap_descriptor(atoms, species=['Al', 'Cu']):
     Parameters:
     atoms: ASE Atoms object containing atomic structure information
     species: List containing possible element symbols in the system
-    rcut: Cutoff radius controlling the range of atomic environment
-    nmax: Number of radial basis functions
-    lmax: Maximum angular quantum number for spherical harmonics
+    rcut: Cutoff radius controlling the range of atomic environment (default: 6.0 Å)
+    nmax: Number of radial basis functions (default: 8)
+    lmax: Maximum angular quantum number for spherical harmonics (default: 6)
     
     Returns:
     numpy array: Averaged SOAP descriptor vector

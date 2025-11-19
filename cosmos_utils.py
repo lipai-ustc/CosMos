@@ -24,25 +24,36 @@ def rotate_vector(v, axis, angle):
     return v * cos_theta + cross * sin_theta + axis * dot * (1 - cos_theta)
 
 
-import importlib
-from ase.calculators import eam
-
 def load_potential(potential_config):
     """
     Automatically load different types of potential calculators based on configuration
+    
+    Parameters:
+        potential_config: Dictionary containing potential configuration with keys:
+            - 'type': Potential type ('eam', 'chgnet', 'deepmd', 'lammps')
+            - 'model': Model file path or name (unified parameter for all types)
+    
+    Returns:
+        ASE Calculator object
     """
     pot_type = potential_config['type'].lower()
     
     if pot_type == 'eam':
         from ase.calculators.eam import EAM
-        return EAM(potential=potential_config['file'])
+        model_path = potential_config.get('model')
+        return EAM(potential=model_path)
     elif pot_type == 'chgnet':
         from chgnet.model import CHGNet
-        model = CHGNet.load()
-        return model.calculator()
+        model_name = potential_config.get('model', 'pretrained')
+        if model_name == 'pretrained':
+            model = CHGNet.load()
+        else:
+            model = CHGNet.load(model_name)
+        return model.get_calculator()
     elif pot_type == 'deepmd':
         from deepmd.calculator import DP
-        return DP(model=potential_config['model'])
+        model_path = potential_config.get('model')
+        return DP(model=model_path)
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
         # Parse LAMMPS potential configuration
