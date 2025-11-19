@@ -23,14 +23,21 @@ CoSMoS (Global Structure Search Program) is a tool for finding stable atomic str
 ### Install from source
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cosmos.git
+git clone https://github.com/lipai-ustc/cosmos.git
 cd cosmos
 
-# Install in development mode (editable)
-pip install -e .
+# (Optional) Create and activate a clean Conda env
+# conda create -n cosmos python=3.10 -y
+# conda activate cosmos
 
-# Or install system-wide
+# Install system-wide (recommended)
 pip install .
+
+# (Optional) Install in development mode (editable)
+# pip install -e .
+
+# (Optional) Install calculators (install as needed)
+# pip install chgnet deepmd-kit
 ```
 
 ## Usage
@@ -44,9 +51,6 @@ Run the program with default files:
 ```bash
 # Basic execution
 cosmos
-
-# Or using the Python script directly
-python cosmos_run.py
 ```
 
 ### Example Execution
@@ -59,7 +63,7 @@ cd examples/AlCu-EAM
 python generate_structure.py
 
 # Run structure search
-python ../../cosmos_run.py
+cosmos
 ```
 
 ## Input File Format
