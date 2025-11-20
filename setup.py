@@ -3,6 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='cosmos',
     version='0.1.0',
+    license='GPL-3.0-or-later',
     packages=find_packages(),
     py_modules=['cosmos_run', 'cosmos_search', 'cosmos_utils'],
     entry_points={
@@ -11,10 +12,10 @@ setup(
         ],
     },
     install_requires=[
-        'ase>=3.22.1',
+        'ase>=3.26.0',
         'numpy>=1.21.0',
         'scipy>=1.7.0',
-        'dscribe>=1.2.0',
+        'dscribe>=2.1.0',
     ],
     author='CoSMoS Development Team',
     author_email='cosmos@example.com',

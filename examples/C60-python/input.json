@@ -3,20 +3,19 @@
     "name": "C60_structure"
   },
   "potential": {
-    "type": "deepmd",
-    "model": "deepcnt-22.pb"
+    "type": "python"
   },
   "monte_carlo": {
     "steps": 100,
     "temperature": 300
   },
   "climbing": {
-    "gaussian_height": 0.5,
-    "gaussian_width": 0.5,
-    "max_gaussians": 10,
+    "gaussian_height": 0.2,
+    "gaussian_width": 0.3,
+    "max_gaussians": 20,
     "optimizer": {
       "max_steps": 200,
-      "fmax": 0.10
+      "fmax": 0.05
     }
   },
   "mobility_control": {
