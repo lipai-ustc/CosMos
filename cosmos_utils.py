@@ -30,15 +30,51 @@ def load_potential(potential_config):
     
     Parameters:
         potential_config: Dictionary containing potential configuration with keys:
-            - 'type': Potential type ('eam', 'chgnet', 'deepmd', 'lammps')
+            - 'type': Potential type ('eam', 'chgnet', 'deepmd', 'lammps', 'python')
             - 'model': Model file path or name (unified parameter for all types)
+            - For 'python' type: loads calculator from calculator.py in working directory
     
     Returns:
         ASE Calculator object
     """
     pot_type = potential_config['type'].lower()
     
-    if pot_type == 'eam':
+    if pot_type == 'python':
+        # Load custom calculator from calculator.py in current working directory
+        import sys
+        import os
+        cwd = os.getcwd()
+        calc_file = os.path.join(cwd, 'calculator.py')
+        if not os.path.exists(calc_file):
+            raise FileNotFoundError(
+                f"calculator.py not found in {cwd}\n"
+                f"When using type='python', you must provide a calculator.py file "
+                f"that defines a 'calculator' variable with an ASE Calculator object."
+            )
+        # Temporarily add cwd to path
+        if cwd not in sys.path:
+            sys.path.insert(0, cwd)
+        try:
+            import calculator as calc_module
+            # Force reload in case it was previously imported
+            import importlib
+            importlib.reload(calc_module)
+            if not hasattr(calc_module, 'calculator'):
+                raise AttributeError(
+                    f"calculator.py must define a 'calculator' variable.\n"
+                    f"Example: calculator = Tersoff()\n"
+                )
+            return calc_module.calculator
+        except ImportError as e:
+            raise ImportError(
+                f"Failed to import calculator.py: {e}\n"
+                f"Make sure calculator.py is valid Python code."
+            )
+        finally:
+            # Clean up sys.path
+            if cwd in sys.path:
+                sys.path.remove(cwd)
+    elif pot_type == 'eam':
         from ase.calculators.eam import EAM
         model_path = potential_config.get('model')
         return EAM(potential=model_path)

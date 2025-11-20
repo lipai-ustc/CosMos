@@ -1,0 +1,5 @@
+cosmos 0.1.0 (Linux 6.6.87.2-microsoft-standard-WSL2)
+executed on             Linux date 2025.11.19  17:35:14
+running on    16 total cores
+Python 3.9.13, ASE 3.26.0, dscribe 2.1.2
+

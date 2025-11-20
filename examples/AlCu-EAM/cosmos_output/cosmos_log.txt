@@ -1,5 +1,12 @@
 CoSMoS Search Log
 Initial structure: Energy = -153.044397 eV
-Step 1: Energy = -153.544795 eV
-Step 2: Energy = -153.569897 eV
-Step 3: Energy = -154.373113 eV
+Step 1: Energy = -154.457766 eV
+Step 2: Energy = -154.467111 eV
+Step 3: Energy = -154.469346 eV
+Step 4: Energy = -154.573931 eV
+Step 5: Energy = -154.586774 eV
+Step 6: Energy = -154.668703 eV
+Step 7: Energy = -154.693157 eV
+Step 8: Energy = -154.775601 eV
+Step 9: Energy = -155.236111 eV
+Step 10: Energy = -155.257458 eV

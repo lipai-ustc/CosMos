@@ -49,6 +49,35 @@ def main() -> None:
     # Load configuration
     config = load_config(config_path)
     
+    # System banner (similar to VASP OUTCAR header)
+    try:
+        from importlib.metadata import version as _pkg_version
+        cosmos_version = _pkg_version('cosmos')
+    except Exception:
+        cosmos_version = 'unknown'
+    import platform
+    from datetime import datetime
+    import multiprocessing
+    os_name = platform.system()
+    os_release = platform.release()
+    now_str = datetime.now().strftime('%Y.%m.%d  %H:%M:%S')
+    total_cores = multiprocessing.cpu_count()
+    print(f"cosmos {cosmos_version} ({os_name} {os_release})")
+    print(f"executed on             {os_name} date {now_str}")
+    print(f"running on    {total_cores} total cores")
+    # Component versions
+    python_ver = platform.python_version()
+    try:
+        import ase
+        ase_ver = getattr(ase, '__version__', 'unknown')
+    except Exception:
+        ase_ver = 'unknown'
+    try:
+        dscribe_ver = _pkg_version('dscribe')
+    except Exception:
+        dscribe_ver = 'unknown'
+    print(f"Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}")
+    
     # Validate required configuration sections
     if 'potential' not in config:
         raise ValueError("Configuration missing 'potential' section")
@@ -78,6 +107,15 @@ def main() -> None:
     # Get output configuration with defaults
     output_config = config.get('output', {})
     output_dir = output_config.get('directory', 'cosmos_output')
+    
+    # Write header to log file
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, 'cosmos_log.txt')
+    with open(log_path, 'w') as f:
+        f.write(f"cosmos {cosmos_version} ({os_name} {os_release})\n")
+        f.write(f"executed on             {os_name} date {now_str}\n")
+        f.write(f"running on    {total_cores} total cores\n")
+        f.write(f"Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}\n\n")
     
     # Get Monte Carlo configuration
     mc_config = config['monte_carlo']

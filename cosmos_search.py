@@ -180,6 +180,34 @@ class CoSMoSSearch:
         # Initial structure optimization (real potential)
         self.atoms.calc = self.base_calc
         self._local_minimize(self.atoms)
+        
+        # Detect geometry type using occupancy ratios (cluster/slab/wire/bulk)
+        self.geometry_type = self._infer_geometry_type(self.atoms)
+        self.is_cluster = (self.geometry_type == 'cluster')
+        # Axes with significant vacuum margins (set in _infer_geometry_type)
+        vacuum_axes = getattr(self, 'vacuum_axes', [])
+        # Compute box center in Cartesian
+        cell = self.atoms.get_cell()
+        box_center = (cell[0] + cell[1] + cell[2]) / 2.0
+        # Determine initial center and optionally pre-center along vacuum axes
+        pos0 = self.atoms.get_positions()
+        curr_center = pos0.mean(axis=0)
+        self.initial_cluster_center = None
+        if len(vacuum_axes) > 0:
+            # Shift only along vacuum axes so center moves to box_center
+            shift = box_center - curr_center
+            for i in range(3):
+                if i not in vacuum_axes:
+                    shift[i] = 0.0
+            self.atoms.set_positions(pos0 + shift)
+            # Use box center as the reference center for subsequent recentering
+            self.initial_cluster_center = box_center
+        axis_labels = ['x', 'y', 'z']
+        dims = [axis_labels[i] for i in vacuum_axes]
+        print(f"Detected geometry: {self.geometry_type}. Cluster: {self.is_cluster}. Vacuum axes: {vacuum_axes} ({', '.join(dims) if dims else 'none'})")
+        if self.initial_cluster_center is not None:
+            print(f"Initial center set to box center on axes {', '.join(dims)}: {self.initial_cluster_center}")
+            print("Recentering will be applied after accepted moves along the vacuum axes.")
         self._add_to_pool(self.atoms)
         self._update_mobility_weights()
 
@@ -365,6 +393,56 @@ class CoSMoSSearch:
         temp_atoms.calc = self.base_calc
         return temp_atoms.get_potential_energy()
     
+    def _translate_to_initial_center(self, atoms):
+        """
+        Translate structure so its geometric center returns to the initial center
+        along axes that have significant vacuum margins (self.vacuum_axes).
+        """
+        vacuum_axes = getattr(self, 'vacuum_axes', [])
+        if getattr(self, 'initial_cluster_center', None) is not None and len(vacuum_axes) > 0:
+            pos = atoms.get_positions()
+            curr_center = pos.mean(axis=0)
+            shift = self.initial_cluster_center - curr_center
+            # Zero out components for non-vacuum axes
+            for i in range(3):
+                if i not in vacuum_axes:
+                    shift[i] = 0.0
+            atoms.set_positions(pos + shift)
+    
+    def _infer_geometry_type(self, atoms, vacuum_threshold_angstrom: float = 3.0):
+        """
+        Infer geometry type based on absolute vacuum margins (Å) along each lattice axis.
+        Uses scaled positions to locate min/max along each axis, converts margins to Å via cell lengths.
+        Also computes and stores self.vacuum_axes (indices with significant vacuum on both sides).
+        Classifies as:
+        - 'cluster': significant vacuum on both sides along all three axes
+        - 'wire': significant vacuum on both sides along two axes
+        - 'slab': significant vacuum on both sides along one axis
+        - 'bulk': otherwise
+        """
+        s = atoms.get_scaled_positions(wrap=True)
+        min_frac = s.min(axis=0)
+        max_frac = s.max(axis=0)
+        cell = atoms.get_cell()
+        axis_lengths = np.array([np.linalg.norm(cell[0]), np.linalg.norm(cell[1]), np.linalg.norm(cell[2])])
+        # Absolute margins (Å)
+        margin_low_abs = min_frac * axis_lengths
+        margin_high_abs = (1.0 - max_frac) * axis_lengths
+        axes = []
+        for i in range(3):
+            if margin_low_abs[i] > vacuum_threshold_angstrom and margin_high_abs[i] > vacuum_threshold_angstrom:
+                axes.append(i)
+        self.vacuum_axes = axes
+        n = len(axes)
+        if n == 3:
+            return 'cluster'
+        elif n == 2:
+            return 'wire'
+        elif n == 1:
+            return 'slab'
+        else:
+            return 'bulk'
+
     def _write_step_output(self, step, atoms, energy):
         """
         Output step information to file
@@ -380,8 +458,14 @@ class CoSMoSSearch:
             steps: Total algorithm iterations
         """
         # Initialize log file
-        with open(os.path.join(self.output_dir, 'cosmos_log.txt'), 'w') as f:
-            f.write("CoSMoS Search Log\n")
+        header_lines = []
+        try:
+            with open(os.path.join(self.output_dir, 'cosmos_log.txt'), 'r') as f:
+                header_lines = [next(f) for _ in range(5)]  # Read first 5 lines (header)
+        except Exception:
+            header_lines = ["CoSMoS Search Log\n"]
+        
+        with open(os.path.join(self.output_dir, 'cosmos_log.txt'), 'a') as f:
             f.write(f"Initial structure: Energy = {self._get_real_energy(self.atoms):.6f} eV\n")
         
         # Initialize combined trajectory file (remove old one if exists)
@@ -481,6 +565,8 @@ class CoSMoSSearch:
                 # Check if new structure is a duplicate
                 if not is_duplicate_by_desc(climb_atoms, self.pool, self.soap_species, self.duplicate_tol):
                     # New unique structure found
+                    # Align cluster center to initial center to prevent global translation
+                    self._translate_to_initial_center(climb_atoms)
                     current_atoms = climb_atoms.copy()
                     current_atoms.calc = self.base_calc  # Attach calculator
                     current_energy = relaxed_energy
@@ -498,6 +584,7 @@ class CoSMoSSearch:
                         climb_atoms.set_positions(perturb_positions.reshape(-1, 3))
                         climb_atoms.calc = self.base_calc
                         self._local_minimize(climb_atoms)
+                    self._translate_to_initial_center(climb_atoms)
                     current_atoms = climb_atoms.copy()
                     current_atoms.calc = self.base_calc  # Attach calculator
                     current_energy = self._get_real_energy(current_atoms)
@@ -686,7 +773,7 @@ def compute_soap_descriptor(atoms, species, rcut=6.0, nmax=8, lmax=6):
     numpy array: Averaged SOAP descriptor vector
     """
     # Initialize SOAP descriptor calculator
-    soap = SOAP(species=species, periodic=True, rcut=rcut, nmax=nmax, lmax=lmax)
+    soap = SOAP(species=species, periodic=True, r_cut=rcut, n_max=nmax, l_max=lmax)
     # Compute descriptor and average it over the atomic dimension to get the structure level descriptor
     return soap.create(atoms).mean(axis=0)  # Average descriptor
 

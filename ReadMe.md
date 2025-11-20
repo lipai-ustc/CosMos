@@ -8,7 +8,7 @@
 - [Examples](#examples)
 - [Output](#output)
 - [References](#references)
-- [Copyright](#copyright)
+- [License](#license)
 
 ## Overview
 CoSMoS (Global Structure Search Program) is a tool for finding stable atomic structures using advanced optimization algorithms.
@@ -18,12 +18,13 @@ CoSMoS (Global Structure Search Program) is a tool for finding stable atomic str
 ### Prerequisites
 - Python 3.8 or higher
 - pip (Python package manager)
-- ASE (Atomic Simulation Environment)
+- ASE>=3.26.0 (Atomic Simulation Environment)
+- dscribe>=2.1.0 (installed automatically via setup.py)
 
 ### Install from source
 ```bash
 # Clone the repository
-git clone https://github.com/lipai-ustc/cosmos.git
+git clone https://github.com/lipai-ustc/CosMos.git
 cd cosmos
 
 # (Optional) Create and activate a clean Conda env
@@ -75,8 +76,9 @@ cosmos
   - `name`: System name (optional)
 
 - `potential`: Potential settings
-  - `type`: Potential type (eam/chgnet/deepmd)
-  - `model`: Model file path or name (for all types)
+  - `type`: Potential type (eam/chgnet/deepmd/python)
+  - `model`: Model file path or name (for eam/chgnet/deepmd types)
+  - For `type: "python"`: Create a `calculator.py` file in your working directory that defines a `calculator` variable with an ASE Calculator object
 
 #### Monte Carlo Layer
 - `monte_carlo`: Monte Carlo parameters
@@ -127,11 +129,13 @@ Example directories are provided in the `examples/` folder:
 - `AlCu-EAM`: Aluminum-Copper alloy example with EAM potential
 - `Au100-CHGNET`: Gold surface example with CHGNET potential
 - `C60-deepmd`: Carbon-60 example with DeepMD potential
+- `C60-python`: Example using custom calculator.py (demonstrates EMT for testing; replace with appropriate calculator for real calculations)
 
 Each example contains:
 - `input.json`: Calculation parameters
 - `init.xyz`: Initial atomic structure
 - Potential files (where required)
+- `calculator.py`: Custom calculator definition (for python type only)
 
 ## Output
 Optimization results will be saved in the `cosmos_output` directory (or custom directory specified in config), containing:
@@ -143,10 +147,8 @@ Optimization results will be saved in the `cosmos_output` directory (or custom d
 1. Shang, R., & Liu, J. (2013). Stochastic surface walking method for global optimization of atomic clusters and biomolecules. The Journal of Chemical Physics, 139(24), 244104.
 2. J. Chem. Theory Comput. 2012, 8, 2215
 
-## Copyright
-Copyright (c) 2025 CoSMoS Development Team. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+## License
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+You may copy, distribute, and modify this software under the terms of the GPL-3.0.
+See https://www.gnu.org/licenses/gpl-3.0.html for the full license text.
 
