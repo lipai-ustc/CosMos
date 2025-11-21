@@ -38,7 +38,7 @@ pip install .
 # pip install -e .
 
 # (Optional) Install calculators (install as needed)
-# pip install deepmd-kit fairchem
+# pip install deepmd-kit fairchem-core
 ```
 
 ## Usage
@@ -114,7 +114,7 @@ cosmos
 | Parameter | Description | Default Value |
 |-----------|-------------|---------------|
 | `initial_atoms` | Initial atomic structure | Required |
-| `calculator` | ASE calculator object | Required |
+| `calculator` | Calculator object | Required |
 | `ds` | Step size (Å) | 0.2 |
 | `H` | Number of Gaussian potentials | 14 |
 | `w` | Gaussian potential height (eV) | 0.1 |
