@@ -1,0 +1,8 @@
+cosmos 0.1.0 (Linux 6.6.87.2-microsoft-standard-WSL2)
+executed on             Linux date 2025.11.21  10:28:11
+running on    16 total cores
+Python 3.9.13, ASE 3.26.0, dscribe 2.1.2
+
+Initial structure: Energy = -405.232330 eV
+Step 1: Energy = -405.244599 eV
+Step 2: Energy = -405.241533 eV

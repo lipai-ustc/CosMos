@@ -38,7 +38,7 @@ pip install .
 # pip install -e .
 
 # (Optional) Install calculators (install as needed)
-# pip install chgnet deepmd-kit
+# pip install deepmd-kit fairchem
 ```
 
 ## Usage
@@ -126,16 +126,27 @@ cosmos
 
 ## Examples
 Example directories are provided in the `examples/` folder:
-- `AlCu-EAM`: Aluminum-Copper alloy example with EAM potential
-- `Au100-CHGNET`: Gold surface example with CHGNET potential
-- `C60-deepmd`: Carbon-60 example with DeepMD potential
-- `C60-python`: Example using custom calculator.py (demonstrates EMT for testing; replace with appropriate calculator for real calculations)
+
+### Standard Calculator Examples
+- `AlCu-EAM`: Aluminum-Copper alloy with EAM potential
+- `C60-deepmd`: Carbon-60 with DeepMD potential (requires dp_model.pb file)
+
+### Custom Calculator Examples (using calculator.py)
+- `C60-python-deepmd`: C60 example using DeepMD via custom calculator.py
+- `C60-python-tersoff`: C60 example using Tersoff via custom calculator.py  
+- `Au100-python-fairchem`: Gold surface example using FAIRChem via custom calculator.py
+
+**Note**: For custom calculator examples, the `calculator.py` file in each directory defines the ASE calculator. To use these examples:
+1. Set `"type": "python"` in `input.json`
+2. Ensure the calculator dependencies are installed (e.g., `pip install deepmd-kit` or `pip install fairchem-core`)
+3. Modify `calculator.py` as needed for your system
 
 Each example contains:
 - `input.json`: Calculation parameters
-- `init.xyz`: Initial atomic structure
-- Potential files (where required)
-- `calculator.py`: Custom calculator definition (for python type only)
+- `generate_structure.py`: Script to generate initial structure
+- `init.xyz`: Initial atomic structure (generated or provided)
+- `calculator.py`: Custom calculator definition (for python type examples only)
+- Model/potential files (where required, e.g., `dp_model.pb` for DeepMD)
 
 ## Output
 Optimization results will be saved in the `cosmos_output` directory (or custom directory specified in config), containing:
