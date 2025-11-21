@@ -3,8 +3,7 @@
     "name": "Au100_surface"
   },
   "potential": {
-    "type": "chgnet",
-    "model": "pretrained"
+    "type": "python"
   },
   "monte_carlo": {
     "steps": 100,

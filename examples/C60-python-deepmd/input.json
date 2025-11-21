@@ -1,0 +1,36 @@
+{
+  "system": {
+    "name": "C60_structure"
+  },
+  "potential": {
+    "type": "python"
+  },
+  "monte_carlo": {
+    "steps": 100,
+    "temperature": 300
+  },
+  "climbing": {
+    "gaussian_height": 0.5,
+    "gaussian_width": 0.5,
+    "max_gaussians": 10,
+    "optimizer": {
+      "max_steps": 200,
+      "fmax": 0.10
+    }
+  },
+  "mobility_control": {
+    "enabled": false,
+    "control_type": "sphere",
+    "control_center": null,
+    "control_radius": 10.0,
+    "decay_type": "gaussian",
+    "decay_length": 5.0,
+    "wall_potential": {
+      "strength": 0.0,
+      "offset": 2.0
+    }
+  },
+  "output": {
+    "directory": "cosmos_output"
+  }
+}
