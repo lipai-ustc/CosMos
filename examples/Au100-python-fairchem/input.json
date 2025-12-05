@@ -19,16 +19,14 @@
     }
   },
   "mobility_control": {
-    "enabled": false,
-    "control_type": "sphere",
-    "control_center": null,
-    "control_radius": 10.0,
-    "decay_type": "gaussian",
-    "decay_length": 5.0,
-    "wall_potential": {
-      "strength": 0.0,
-      "offset": 2.0
-    }
+    "mode": "region",
+    "region_type": "slab",
+    "origin": [0.0, 0.0, 10.0],
+    "normal": [0, 0, 1],
+    "min_dist": 0.0,
+    "max_dist": 8.0,
+    "wall_strength": 5.0,
+    "wall_offset": 2.0
   },
   "output": {
     "directory": "cosmos_output"

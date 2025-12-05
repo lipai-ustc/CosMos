@@ -69,6 +69,16 @@ cosmos
 
 ## Input File Format
 
+### Low-Dimensional Structure Preparation
+For low-dimensional systems (clusters / wires / slabs), **you must place the structural center near the center of the simulation box** before running CoSMoS. The internal geometry classification in `cosmos_search.py` detects vacuum layers by measuring distances from atoms to the cell boundaries. If a low-dimensional structure is located near the origin instead of the box center, the algorithm may misclassify the system (e.g., treating a cluster as bulk).
+
+Practical recommendations:
+- **0D cluster**: Place the cluster roughly at `(Lx/2, Ly/2, Lz/2)`.
+- **1D wire**: The wire should extend along one axis, while its cross-section is centered in the box.
+- **2D slab**: The slab should be centered along the vacuum direction.
+
+If the structure is not centered, CoSMoS may choose inappropriate settings for mobility control and vacuum-axis handling.
+
 ### input.json Configuration
 
 #### System and Potential
@@ -76,9 +86,88 @@ cosmos
   - `name`: System name (optional)
 
 - `potential`: Potential settings
-  - `type`: Potential type (eam/chgnet/deepmd/python)
-  - `model`: Model file path or name (for eam/chgnet/deepmd types)
+  - `type`: Potential type (eam/chgnet/deepmd/fairchem/vasp/lammps/python)
+  - `model`: Model/configuration file path
+    - For `eam`: Path to EAM potential file (e.g., `AlCu.eam.alloy`)
+    - For `chgnet`: Model name (e.g., `pretrained`) or path
+    - For `deepmd`: Path to DeepMD model file (e.g., `dp_model.pb`)
+    - For `fairchem`: Pretrained model name (default: `EquiformerV2-31M-S2EF-OC20-All+MD`)
+    - For `vasp`: Path to INCAR file (default: `INCAR`)
+  - `parameters`: Calculator-specific parameters (for lammps type)
   - For `type: "python"`: Create a `calculator.py` file in your working directory that defines a `calculator` variable with an ASE Calculator object
+
+**Supported Calculator Types:**
+
+*EAM Potential:*
+```json
+"potential": {
+  "type": "eam",
+  "model": "AlCu.eam.alloy"
+}
+```
+
+*CHGNet (pretrained or custom):*
+```json
+"potential": {
+  "type": "chgnet",
+  "model": "pretrained"
+}
+```
+
+*DeepMD:*
+```json
+"potential": {
+  "type": "deepmd",
+  "model": "dp_model.pb"
+}
+```
+
+*FAIRChem (Open Catalyst Project):*
+```json
+"potential": {
+  "type": "fairchem",
+  "model": "/path/to/checkpoint.pt",
+  "device": "cuda",
+  "task_name": "oc20"
+}
+```
+- `model`: Path to checkpoint file or pretrained model name (e.g., `EquiformerV2-31M-S2EF-OC20-All+MD`)
+- `device`: `"cpu"` or `"cuda"` (default: `"cpu"`)
+- `task_name`: Task name, usually `"oc20"` (default: `"oc20"`)
+
+Example with custom checkpoint:
+```json
+"potential": {
+  "type": "fairchem",
+  "model": "/mnt/d/uma-s-1p1.pt",
+  "device": "cuda"
+}
+```
+
+*VASP (requires VASP installation):*
+```json
+"potential": {
+  "type": "vasp",
+  "model": "INCAR"
+}
+```
+Reads VASP parameters from the specified INCAR file (default: `INCAR` in working directory). If file not found, uses default PBE parameters.
+
+*LAMMPS:*
+```json
+"potential": {
+  "type": "lammps",
+  "commands": [...]
+}
+```
+
+*Custom Python Calculator:*
+```json
+"potential": {
+  "type": "python"
+}
+```
+Requires a `calculator.py` file in the working directory.
 
 #### Monte Carlo Layer
 - `monte_carlo`: Monte Carlo parameters
@@ -95,16 +184,82 @@ cosmos
     - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
 
 #### Mobility Control Layer (Optional)
-- `mobility_control`: Spatial constraint settings
-  - `enabled`: Enable mobility control (default: False)
-  - `control_type`: Type of control region ('sphere' or 'plane', default: 'sphere')
-  - `control_center`: Center of control region [x, y, z] (default: box center)
-  - `control_radius`: Radius of core region in Å (default: 10.0)
-  - `decay_type`: Weight decay type ('gaussian', 'linear', or 'none', default: 'gaussian')
-  - `decay_length`: Decay length scale in Å (default: 5.0)
-  - `wall_potential`: Wall potential settings
-    - `strength`: Wall potential strength in eV/Å² (default: 0.0)
-    - `offset`: Wall offset distance in Å (default: 2.0)
+The mobility control feature allows you to constrain which atoms can move during optimization. **By default, all atoms are mobile.**
+
+**Mode 1: All atoms mobile (default)**
+```json
+"mobility_control": null
+```
+Or simply omit the `mobility_control` section entirely.
+
+**Mode 2a: Control by mobile atom indices (indices_free)**
+```json
+"mobility_control": {
+  "mode": "indices_free",
+  "indices_free": [10, 20, 25],
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `mode`: Set to `"indices_free"` to mark listed atoms as mobile (others fixed).
+- `indices_free`: List of atom indices that are allowed to move (0-based).
+
+**Mode 2b: Control by fixed atom indices (indices_fix)**
+```json
+"mobility_control": {
+  "mode": "indices_fix",
+  "indices_fix": [0, 1, 2],
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `mode`: Set to `"indices_fix"` to mark listed atoms as fixed (others mobile).
+- `indices_fix`: List of atom indices that are fixed (0-based).
+
+**Mode 3: Control by spatial region**
+
+*Sphere region:*
+```json
+"mobility_control": {
+  "mode": "region",
+  "region_type": "sphere",
+  "center": [5.0, 5.0, 5.0],
+  "radius": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `mode`: Set to `"region"` for spatial control
+- `region_type`: `"sphere"` for spherical region
+- `center`: Center coordinates [x, y, z] in Å
+- `radius`: Sphere radius in Å
+- `wall_strength`: Repulsive wall strength to prevent atoms from leaving the region
+- `wall_offset`: Mobile atoms can penetrate up to this distance beyond the boundary before feeling wall repulsion
+
+*Slab region (between two parallel planes):*
+```json
+"mobility_control": {
+  "mode": "region",
+  "region_type": "slab",
+  "origin": [0.0, 0.0, 0.0],
+  "normal": [0, 0, 1],
+  "min_dist": -5.0,
+  "max_dist": 5.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `region_type`: `"slab"` for region between two planes
+- `origin`: Reference point for plane distance calculation
+- `normal`: Normal vector of the planes [x, y, z]
+- `min_dist`: Minimum distance along normal direction (in Å)
+- `max_dist`: Maximum distance along normal direction (in Å)
+
+**Wall Potential:**
+When using mobility control with `wall_strength > 0`, a quadratic repulsive wall potential prevents mobile atoms from penetrating too deep into immobile regions:
+- Atoms can move up to `wall_offset` distance beyond the boundary without penalty
+- Beyond that: `V_wall = 0.5 × wall_strength × overshoot²`
+- This provides a soft boundary while maintaining flexibility
 
 #### Output
 - `output`: Output settings
@@ -119,10 +274,7 @@ cosmos
 | `H` | Number of Gaussian potentials | 14 |
 | `w` | Gaussian potential height (eV) | 0.1 |
 | `temperature` | Temperature (K) | 300 |
-| `mobility_control` | Whether to enable mobility control | False |
-| `control_radius` | Core region radius (Å) | 10.0 |
-| `wall_strength` | Wall potential strength (eV/Å²) | 10.0 |
-| `wall_offset` | Wall potential distance offset (Å) | 2.0 |
+| `mobility_control` | Mobility control configuration (dict or None) | None (all mobile) |
 
 ## Examples
 Example directories are provided in the `examples/` folder:

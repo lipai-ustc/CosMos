@@ -7,31 +7,9 @@ Function: Reads structure file and potential model configuration from input.json
 Usage: cosmos [or] python cosmos_run.py
 """
 import os
-import json
-from typing import Dict, Any
 import numpy as np
-from ase import Atoms
-from ase.io import read
-from ase.calculators.calculator import Calculator
 from cosmos_search import CoSMoSSearch
-
-
-def load_initial_structure(structure_path: str) -> Atoms:
-    """Load initial structure from file"""
-    return read(structure_path)
-
-
-def load_calculator(config: Dict[str, Any], cwd: str = '.') -> Calculator:
-    """Dynamically load calculator based on configuration"""
-    from cosmos_utils import load_potential
-    potential_config = config.get('potential', {})
-    return load_potential(potential_config)
-
-
-def load_config(config_path: str) -> Dict[str, Any]:
-    """Load configuration from JSON file"""
-    with open(config_path, 'r') as f:
-        return json.load(f)
+from cosmos_utils import load_initial_structure, load_config, load_potential, get_version_info
 
 
 def main() -> None:
@@ -50,33 +28,8 @@ def main() -> None:
     config = load_config(config_path)
     
     # System banner (similar to VASP OUTCAR header)
-    try:
-        from importlib.metadata import version as _pkg_version
-        cosmos_version = _pkg_version('cosmos')
-    except Exception:
-        cosmos_version = 'unknown'
-    import platform
-    from datetime import datetime
-    import multiprocessing
-    os_name = platform.system()
-    os_release = platform.release()
-    now_str = datetime.now().strftime('%Y.%m.%d  %H:%M:%S')
-    total_cores = multiprocessing.cpu_count()
-    print(f"cosmos {cosmos_version} ({os_name} {os_release})")
-    print(f"executed on             {os_name} date {now_str}")
-    print(f"running on    {total_cores} total cores")
-    # Component versions
-    python_ver = platform.python_version()
-    try:
-        import ase
-        ase_ver = getattr(ase, '__version__', 'unknown')
-    except Exception:
-        ase_ver = 'unknown'
-    try:
-        dscribe_ver = _pkg_version('dscribe')
-    except Exception:
-        dscribe_ver = 'unknown'
-    print(f"Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}")
+    _, _, _, _, header = get_version_info()
+    print(header)
     
     # Validate required configuration sections
     if 'potential' not in config:
@@ -99,8 +52,9 @@ def main() -> None:
     # Load structure
     atoms = load_initial_structure(structure_path)
     
-    # Load calculator before initializing CoSMoSSearch
-    calculator = load_calculator(config)
+    # Load calculator directly from load_potential
+    potential_config = config.get('potential', {})
+    calculator = load_potential(potential_config)
     if calculator is None:
         raise ValueError("Failed to initialize calculator. Check your potential configuration.")
     
@@ -112,45 +66,26 @@ def main() -> None:
     os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, 'cosmos_log.txt')
     with open(log_path, 'w') as f:
-        f.write(f"cosmos {cosmos_version} ({os_name} {os_release})\n")
-        f.write(f"executed on             {os_name} date {now_str}\n")
-        f.write(f"running on    {total_cores} total cores\n")
-        f.write(f"Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}\n\n")
+        f.write(header)
+        f.write('\n\n')
     
     # Get Monte Carlo configuration
     mc_config = config['monte_carlo']
     mc_steps = mc_config.get('steps', 100)
-    temperature = mc_config.get('temperature', 300)
+    temperature = mc_config.get('temperature', 500)
     
     # Get Climbing configuration
     climb_config = config['climbing']
     gaussian_height = climb_config.get('gaussian_height', 0.1)  # w parameter
     gaussian_width = climb_config.get('gaussian_width', 0.2)    # ds parameter
-    max_gaussians = climb_config.get('max_gaussians', 14)       # H parameter
+    max_gaussians = climb_config.get('max_gaussians', 20)       # H parameter
     
     optimizer_config = climb_config.get('optimizer', {})
     max_steps = optimizer_config.get('max_steps', 500)
     fmax = optimizer_config.get('fmax', 0.05)
     
     # Get Mobility Control configuration
-    mobility_config = config.get('mobility_control', {})
-    mobility_control = mobility_config.get('enabled', False)
-    control_type = mobility_config.get('control_type', 'sphere')
-    control_radius = mobility_config.get('control_radius', 10.0)
-    decay_type = mobility_config.get('decay_type', 'gaussian')
-    decay_length = mobility_config.get('decay_length', 5.0)
-    
-    wall_config = mobility_config.get('wall_potential', {})
-    wall_strength = wall_config.get('strength', 0.0)
-    wall_offset = wall_config.get('offset', 2.0)
-    
-    # Calculate default control center (box center)
-    cell = atoms.get_cell()
-    control_center = mobility_config.get('control_center')
-    if control_center is None:
-        control_center = np.mean(cell, axis=0)/2 if np.any(cell) else np.array([5.0, 5.0, 5.0])
-    
-    plane_normal = mobility_config.get('plane_normal', [0, 0, 1])
+    mobility_control_param = config.get('mobility_control', None)
     
     cosmos = CoSMoSSearch(
         initial_atoms=atoms,
@@ -164,20 +99,8 @@ def main() -> None:
         fmax=fmax,
         # Monte Carlo parameters
         temperature=temperature,
-        # Mobility control parameters
-        mobility_control=mobility_control,
-        control_type=control_type,
-        control_center=control_center,
-        control_radius=control_radius,
-        plane_normal=plane_normal,
-        decay_type=decay_type,
-        decay_length=decay_length,
-        # Wall potential parameters
-        wall_strength=wall_strength,
-        wall_offset=wall_offset,
-        # Legacy parameters (kept for compatibility)
-        radius=control_radius,
-        decay=0.99
+        # Mobility control parameters (new simplified format)
+        mobility_control=mobility_control_param
     )
     
     # Run CoSMoS global optimization

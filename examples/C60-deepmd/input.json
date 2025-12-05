@@ -19,18 +19,6 @@
       "fmax": 0.10
     }
   },
-  "mobility_control": {
-    "enabled": false,
-    "control_type": "sphere",
-    "control_center": null,
-    "control_radius": 10.0,
-    "decay_type": "gaussian",
-    "decay_length": 5.0,
-    "wall_potential": {
-      "strength": 0.0,
-      "offset": 2.0
-    }
-  },
   "output": {
     "directory": "cosmos_output"
   }
