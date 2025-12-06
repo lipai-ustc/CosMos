@@ -1,12 +1,16 @@
-CoSMoS Search Log
+cosmos 0.1.0 (Linux 6.6.87.2-microsoft-standard-WSL2)
+executed on             Linux date 2025.12.06  17:51:43
+running on    16 total cores
+Python 3.9.13, ASE 3.26.0, dscribe 2.1.2
+
 Initial structure: Energy = -153.044397 eV
-Step 1: Energy = -154.457766 eV
-Step 2: Energy = -154.467111 eV
-Step 3: Energy = -154.469346 eV
-Step 4: Energy = -154.573931 eV
-Step 5: Energy = -154.586774 eV
-Step 6: Energy = -154.668703 eV
-Step 7: Energy = -154.693157 eV
-Step 8: Energy = -154.775601 eV
-Step 9: Energy = -155.236111 eV
-Step 10: Energy = -155.257458 eV
+Step 1: Energy = -153.483743 eV
+Step 2: Energy = -154.006889 eV
+Step 3: Energy = -154.563201 eV
+Step 4: Energy = -154.680377 eV
+Step 5: Energy = -154.943943 eV
+Step 6: Energy = -155.030173 eV
+Step 7: Energy = -155.056638 eV
+Step 8: Energy = -155.067549 eV
+Step 9: Energy = -155.094723 eV
+Step 10: Energy = -155.423278 eV
