@@ -7,9 +7,29 @@ Function: Reads structure file and potential model configuration from input.json
 Usage: cosmos [or] python cosmos_run.py
 """
 import os
+import sys
 import numpy as np
 from cosmos_search import CoSMoSSearch
 from cosmos_utils import load_initial_structure, load_config, load_potential, get_version_info
+
+
+class TeeLogger:
+    """Redirect print output to both console and log file"""
+    def __init__(self, log_file):
+        self.terminal = sys.stdout
+        self.log = open(log_file, 'a')
+    
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+    
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+    
+    def close(self):
+        self.log.close()
 
 
 def main() -> None:
@@ -65,13 +85,17 @@ def main() -> None:
     # Get output configuration with defaults
     output_config = config.get('output', {})
     output_dir = output_config.get('directory', 'cosmos_output')
+    debug_mode = output_config.get('debug', False)
     
-    # Write header to log file
+    # Write header to log file and setup logging
     os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, 'cosmos_log.txt')
     with open(log_path, 'w') as f:
         f.write(header)
         f.write('\n\n')
+    
+    # Redirect stdout to both console and log file
+    sys.stdout = TeeLogger(log_path)
     
     # Get Monte Carlo configuration
     mc_config = config['monte_carlo']
@@ -198,7 +222,9 @@ def main() -> None:
         # Potential type for calculator selection
         potential_type=potential_type,
         # NequIP config for atomic energy fallback
-        nequip_config=nequip_fallback_config
+        nequip_config=nequip_fallback_config,
+        # Debug mode
+        debug=debug_mode
     )
     
     # Run CoSMoS global optimization

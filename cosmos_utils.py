@@ -178,8 +178,8 @@ def load_potential(potential_config):
         from nequip.ase import NequIPCalculator
         model_path = potential_config.get('model')
         device = potential_config.get('device', 'cpu')
-        return NequIPCalculator.from_deployed_model(
-            model_path=model_path,
+        return NequIPCalculator.from_compiled_model(
+            compile_path=model_path,
             device=device
         )
     elif pot_type == 'vasp':

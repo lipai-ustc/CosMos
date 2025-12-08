@@ -94,6 +94,7 @@ class CoSMoSSearch:
         mobility_control=None,            # Mobility control configuration dict or None
         potential_type=None,              # Potential type ('deepmd', 'eam', etc.)
         nequip_config=None,               # NequIP configuration for fallback atomic energy
+        debug=False,                      # Debug mode for detailed logging
         **kwargs                      # Additional parameters
     ):
         # Initialize minimum pool
@@ -102,6 +103,7 @@ class CoSMoSSearch:
         self.base_calc = calculator  # Calculator for real potential energy
         self.potential_type = potential_type  # Store potential type for calculator selection
         self.nequip_config = nequip_config  # Store NequIP config for atomic energy fallback
+        self.debug = debug  # Debug mode flag
         self.soap_species = soap_species or list(set(initial_atoms.get_chemical_symbols()))
         self.ds = ds  # Step size parameter controlling structure movement distance
         self.duplicate_tol = duplicate_tol  # Structure similarity threshold
@@ -202,14 +204,52 @@ class CoSMoSSearch:
         """
         if calc is not None:
             atoms.calc = calc
-        # Use LBFGS optimizer instead of BFGS, complies with documentation steps 4 and 6
+        
+        # Use LBFGS optimizer with custom logging if debug mode
         from ase.optimize import LBFGS
-        opt = LBFGS(atoms,logfile=None)
+        
+        if self.debug and isinstance(calc, BiasedCalculator):
+            # Debug mode: log energy components at each step
+            import sys
+            
+            class DebugLBFGS(LBFGS):
+                def __init__(self, atoms, parent_search, **kwargs):
+                    super().__init__(atoms, **kwargs)
+                    self.parent_search = parent_search
+                    self.step_count = 0
+                
+                def step(self, f=None):
+                    result = super().step(f)
+                    self.step_count += 1
+                    
+                    # Log energy components
+                    if hasattr(self.atoms.calc, 'results') and 'energy_components' in self.atoms.calc.results:
+                        E_base, E_bias, E_wall = self.atoms.calc.results['energy_components']
+                        E_total = self.atoms.get_potential_energy()
+                        forces = self.atoms.get_forces()
+                        fmax_current = (forces**2).sum(axis=1).max()**0.5
+                        
+                        print(f"  Step {self.step_count}: E_total = {E_total:.6f} eV, "
+                              f"E_base = {E_base:.6f} eV, E_bias = {E_bias:.6f} eV, E_wall = {E_wall:.6f} eV, "
+                              f"fmax = {fmax_current:.6f} eV/Å")
+                    
+                    return result
+            
+            opt = DebugLBFGS(atoms, self, logfile=None)
+        else:
+            # Normal mode: no step-by-step logging
+            opt = LBFGS(atoms, logfile=None)
+        
         opt.run(fmax=fmax or self.fmax)
         
         # Output final optimized energy
         final_energy = atoms.get_potential_energy()
         print(f"Local minimization completed: E = {final_energy:.6f} eV")
+        
+        # Output final energy components if available
+        if isinstance(calc, BiasedCalculator) and hasattr(calc, 'results') and 'energy_components' in calc.results:
+            E_base, E_bias, E_wall = calc.results['energy_components']
+            print(f"  Final energy components: base = {E_base:.6f} eV, bias = {E_bias:.6f} eV, wall = {E_wall:.6f} eV")
 
     def _add_to_pool(self, atoms):
         """
@@ -283,8 +323,8 @@ class CoSMoSSearch:
                         from nequip.ase import NequIPCalculator
                         model_path = self.nequip_config.get('model')
                         device = self.nequip_config.get('device', 'cpu')
-                        self._nequip_atomic_calc = NequIPCalculator.from_deployed_model(
-                            model_path=model_path,
+                        self._nequip_atomic_calc = NequIPCalculator.from_compiled_model(
+                            compile_path=model_path,
                             device=device
                         )
                         print(f"Initialized NequIP calculator from config for per-atom energy calculation.")

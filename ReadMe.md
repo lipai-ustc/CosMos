@@ -396,6 +396,24 @@ When using mobility control with `wall_strength > 0`, a quadratic repulsive wall
 #### Output
 - `output`: Output settings
   - `directory`: Output directory name (default: 'cosmos_output')
+  - `debug`: Enable debug mode for detailed logging (default: false)
+    - When `true`: Logs step-by-step energy components (base, Gaussian bias, wall) during optimization to `cosmos_log.txt`
+    - When `false`: Only logs final results and major events
+
+**Debug Mode Example:**
+```json
+"output": {
+  "directory": "cosmos_output",
+  "debug": true
+}
+```
+
+In debug mode, the log file will contain detailed information for each optimization step:
+```
+Step 1: E_total = -125.234567 eV, E_base = -125.500000 eV, E_bias = 0.250000 eV, E_wall = 0.015433 eV, fmax = 0.850000 eV/Å
+Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV, E_wall = 0.013211 eV, fmax = 0.420000 eV/Å
+...
+```
 
 ### Main Parameters
 | Parameter | Description | Default Value |
