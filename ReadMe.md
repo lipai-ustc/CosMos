@@ -20,6 +20,8 @@ CoSMoS (Global Structure Search Program) is a tool for finding stable atomic str
 - pip (Python package manager)
 - ASE>=3.26.0 (Atomic Simulation Environment)
 - dscribe>=2.1.0 (installed automatically via setup.py)
+- **NequIP** (recommended for default calculator): `pip install nequip`
+- Optional calculators: deepmd-kit, fairchem-core, chgnet (install as needed)
 
 ### Install from source
 ```bash
@@ -37,20 +39,34 @@ pip install .
 # (Optional) Install in development mode (editable)
 # pip install -e .
 
-# (Optional) Install calculators (install as needed)
-# pip install deepmd-kit fairchem-core
+# Install NequIP (recommended for default calculator)
+pip install nequip
+
+# (Optional) Install other calculators as needed
+# pip install deepmd-kit      # For DeepMD potential
+# pip install fairchem-core   # For FAIRChem/OCP models
+# pip install chgnet          # For CHGNet models
 ```
 
 ## Usage
 
 ### Basic Usage
-CoSMoS requires two input files in the working directory:
-1. `input.json` - Calculation parameters configuration file
-2. `init.xyz` - Initial structure file
+CoSMoS requires an initial structure file and optionally a configuration file:
+1. `init.xyz` - Initial structure file (required)
+2. `input.json` - Configuration file (optional - uses defaults with NequIP from NEQUIP_MODEL)
 
-Run the program with default files:
+Run with default NequIP calculator:
 ```bash
-# Basic execution
+# Set NequIP model path
+export NEQUIP_MODEL=/path/to/deployed_model.pth
+
+# Run with minimal configuration
+cosmos
+```
+
+Run with custom configuration:
+```bash
+# Basic execution with input.json
 cosmos
 ```
 
@@ -85,18 +101,63 @@ If the structure is not centered, CoSMoS may choose inappropriate settings for m
 - `system`: System information
   - `name`: System name (optional)
 
-- `potential`: Potential settings
-  - `type`: Potential type (eam/chgnet/deepmd/fairchem/vasp/lammps/python)
+- `potential`: Potential settings (optional - defaults to NequIP from NEQUIP_MODEL environment variable)
+  - `type`: Potential type (nequip/eam/chgnet/deepmd/fairchem/vasp/lammps/python)
   - `model`: Model/configuration file path
+    - For `nequip`: Path to deployed NequIP model file (e.g., `deployed_model.pth`)
     - For `eam`: Path to EAM potential file (e.g., `AlCu.eam.alloy`)
     - For `chgnet`: Model name (e.g., `pretrained`) or path
     - For `deepmd`: Path to DeepMD model file (e.g., `dp_model.pb`)
     - For `fairchem`: Pretrained model name (default: `EquiformerV2-31M-S2EF-OC20-All+MD`)
     - For `vasp`: Path to INCAR file (default: `INCAR`)
+  - `device`: Device for computation (optional, default: `"cpu"`)
+    - For GPU acceleration: `"cuda"`
   - `parameters`: Calculator-specific parameters (for lammps type)
   - For `type: "python"`: Create a `calculator.py` file in your working directory that defines a `calculator` variable with an ASE Calculator object
 
+**Default Calculator:**
+If no `potential` section is specified in `input.json`, CoSMoS will use NequIP as the default calculator:
+```bash
+# Set environment variable for default NequIP model
+export NEQUIP_MODEL=/path/to/deployed_model.pth
+
+# Run without potential configuration
+cosmos
+```
+
+**Atomic Energy Fallback (for atomic-mode random directions):**
+When using `random_direction_mode: "atomic"` or `"atomic_plus_nl"`, per-atom energies are required:
+1. **Primary calculator**: Uses native `get_potential_energies()` if supported (NequIP, custom calculators)
+2. **DeepMD**: Automatically uses custom wrapper `DeepMDCalculatorWithAtomicEnergy`
+3. **NequIP fallback**: If primary fails and `nequip_fallback` is configured, uses NequIP for atomic energies
+4. **Uniform distribution**: Last resort if all methods fail (equal weighting for all atoms)
+
+Optional NequIP fallback configuration:
+```json
+"nequip_fallback": {
+  "model": "/path/to/nequip_fallback.pth",
+  "device": "cpu"
+}
+```
+
 **Supported Calculator Types:**
+
+*NequIP (Equivariant Neural Network):*
+```json
+"potential": {
+  "type": "nequip",
+  "model": "deployed_model.pth",
+  "device": "cpu"
+}
+```
+- `model`: Path to deployed NequIP model file
+- `device`: `"cpu"` or `"cuda"` (default: `"cpu"`)
+
+NequIP is the **default calculator** when no potential is specified. Set the `NEQUIP_MODEL` environment variable:
+```bash
+export NEQUIP_MODEL=/path/to/deployed_model.pth
+cosmos  # Will use NequIP automatically
+```
 
 *EAM Potential:*
 ```json
