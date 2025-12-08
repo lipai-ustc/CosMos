@@ -84,8 +84,97 @@ def main() -> None:
     max_steps = optimizer_config.get('max_steps', 500)
     fmax = optimizer_config.get('fmax', 0.05)
     
-    # Get Mobility Control configuration
-    mobility_control_param = config.get('mobility_control', None)
+    # Random direction mode configuration
+    rd_mode = climb_config.get('random_direction_mode', 'atomic_plus_nl')
+    valid_modes = {'base', 'atomic', 'base_plus_nl', 'atomic_plus_nl', 'python'}
+    valid_ints = {1: 'base', 2: 'atomic', 3: 'base_plus_nl', 4: 'atomic_plus_nl'}
+    
+    if isinstance(rd_mode, int):
+        if rd_mode not in valid_ints:
+            raise ValueError(
+                f"Invalid random_direction_mode: {rd_mode}. "
+                f"Must be one of {list(valid_ints.keys())} or {valid_modes}"
+            )
+        rd_mode = valid_ints[rd_mode]
+    else:
+        rd_mode = str(rd_mode).strip().lower()
+        if rd_mode not in valid_modes:
+            raise ValueError(
+                f"Invalid random_direction_mode: '{rd_mode}'. "
+                f"Must be one of {valid_modes} or {list(valid_ints.keys())}"
+            )
+    
+    # Get Mobility Control configuration and normalize to internal format
+    raw_mc = config.get('mobility_control', None)
+    mobility_control_param = None
+    if isinstance(raw_mc, dict):
+        mode = raw_mc.get('mode', 'all')
+        if mode == 'all':
+            mobility_control_param = None
+        elif mode == 'indices_free':
+            idx = np.array(raw_mc.get('indices_free', []), dtype=int)
+            mobility_control_param = {
+                'mobile_atoms': idx.tolist(),
+                'mobility_region': None,
+                'wall_strength': raw_mc.get('wall_strength', 0.0),
+                'wall_offset': raw_mc.get('wall_offset', 2.0),
+            }
+        elif mode == 'indices_fix':
+            fixed = np.array(raw_mc.get('indices_fix', []), dtype=int)
+            all_idx = np.arange(len(atoms), dtype=int)
+            mobile = np.setdiff1d(all_idx, fixed, assume_unique=False)
+            mobility_control_param = {
+                'mobile_atoms': mobile.tolist(),
+                'mobility_region': None,
+                'wall_strength': raw_mc.get('wall_strength', 0.0),
+                'wall_offset': raw_mc.get('wall_offset', 2.0),
+            }
+        elif mode == 'region':
+            region_type = raw_mc.get('region_type', 'sphere')
+            if region_type == 'sphere':
+                mobility_control_param = {
+                    'mobile_atoms': None,
+                    'mobility_region': {
+                        'type': 'sphere',
+                        'center': np.array(raw_mc.get('center', [0, 0, 0])).tolist(),
+                        'radius': raw_mc.get('radius', 10.0),
+                    },
+                    'wall_strength': raw_mc.get('wall_strength', 0.0),
+                    'wall_offset': raw_mc.get('wall_offset', 2.0),
+                }
+            elif region_type == 'slab':
+                mobility_control_param = {
+                    'mobile_atoms': None,
+                    'mobility_region': {
+                        'type': 'slab',
+                        'origin': np.array(raw_mc.get('origin', [0, 0, 0])).tolist(),
+                        'normal': np.array(raw_mc.get('normal', [0, 0, 1])).tolist(),
+                        'min_dist': raw_mc.get('min_dist', -5.0),
+                        'max_dist': raw_mc.get('max_dist', 5.0),
+                    },
+                    'wall_strength': raw_mc.get('wall_strength', 0.0),
+                    'wall_offset': raw_mc.get('wall_offset', 2.0),
+                }
+            elif region_type in ('lower', 'upper'):
+                mobility_control_param = {
+                    'mobile_atoms': None,
+                    'mobility_region': {
+                        'type': region_type,
+                        'axis': raw_mc.get('axis', 'z'),
+                        'threshold': raw_mc.get('threshold', 0.0),
+                    },
+                    'wall_strength': raw_mc.get('wall_strength', 0.0),
+                    'wall_offset': raw_mc.get('wall_offset', 2.0),
+                }
+            else:
+                raise ValueError(f"Unknown region_type: {region_type}")
+        else:
+            raise ValueError(f"Unknown mobility_control mode: {mode}")
+    
+    # Prepare NequIP config for atomic energy fallback (if available)
+    nequip_fallback_config = None
+    if 'nequip_fallback' in config:
+        nequip_fallback_config = config['nequip_fallback']
     
     cosmos = CoSMoSSearch(
         initial_atoms=atoms,
@@ -100,7 +189,12 @@ def main() -> None:
         # Monte Carlo parameters
         temperature=temperature,
         # Mobility control parameters (new simplified format)
-        mobility_control=mobility_control_param
+        random_direction_mode=rd_mode,
+        mobility_control=mobility_control_param,
+        # Potential type for calculator selection
+        potential_type=potential_config.get('type', '').lower(),
+        # NequIP config for atomic energy fallback
+        nequip_config=nequip_fallback_config
     )
     
     # Run CoSMoS global optimization

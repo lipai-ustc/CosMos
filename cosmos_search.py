@@ -4,8 +4,9 @@
 import os
 import numpy as np
 from ase import Atoms
+from ase.constraints import FixAtoms
 from ase.calculators.calculator import Calculator, all_changes
-from cosmos_utils import is_duplicate_by_desc_and_energy, write_structure_with_energy
+from cosmos_utils import is_duplicate_by_desc_and_energy, infer_geometry_type, get_mobility_mask, calculate_wall_potential
 
 class BiasedCalculator(Calculator):
     """
@@ -51,9 +52,7 @@ class BiasedCalculator(Calculator):
             # Calculate projection: (R - R1)·Nn
             proj = np.dot(dr, d)
             
-            # Parameter a in equation (6) of the paper
-            a = 2.0  # Controls Gaussian potential width and strength
-            
+            # Gaussian width uses self.ds (step size); equation parameters consolidated
             # Calculate energy contribution of single Gaussian potential - according to equation (5) in the paper
             V_bias = w * np.exp(-(proj**2) / (2 * self.ds**2))
             V_bias_total += V_bias
@@ -68,6 +67,7 @@ class BiasedCalculator(Calculator):
         wall_forces = self.wall_forces if len(self.wall_forces) == len(R) else np.zeros_like(R)
         self.results['energy'] = E0 + V_bias_total + self.wall_energy
         self.results['forces'] = (F0 + F_bias_total + wall_forces).reshape((-1, 3))
+        self.results['energy_components'] = (E0, V_bias_total, self.wall_energy)
 
 
 class CoSMoSSearch:
@@ -90,13 +90,18 @@ class CoSMoSSearch:
         wall_strength=0.0,   # Wall potential strength (eV/Å²)
         wall_offset=2.0,     # Wall potential distance offset (Å)
         # Mobility control parameters - simplified design
+        random_direction_mode="atomic_plus_nl",
         mobility_control=None,            # Mobility control configuration dict or None
+        potential_type=None,              # Potential type ('deepmd', 'eam', etc.)
+        nequip_config=None,               # NequIP configuration for fallback atomic energy
         **kwargs                      # Additional parameters
     ):
         # Initialize minimum pool
         self.pool = []  # Stores found minimum energy structures
         self.atoms = initial_atoms.copy()
         self.base_calc = calculator  # Calculator for real potential energy
+        self.potential_type = potential_type  # Store potential type for calculator selection
+        self.nequip_config = nequip_config  # Store NequIP config for atomic energy fallback
         self.soap_species = soap_species or list(set(initial_atoms.get_chemical_symbols()))
         self.ds = ds  # Step size parameter controlling structure movement distance
         self.duplicate_tol = duplicate_tol  # Structure similarity threshold
@@ -107,73 +112,24 @@ class CoSMoSSearch:
         self.w = w  # Gaussian potential height
         self.temperature = temperature  # Temperature parameter for Metropolis criterion
         self.k_boltzmann = 8.617333262e-5  # Boltzmann constant (eV/K)
+        self.random_direction_mode = random_direction_mode.strip().lower()
         
         # New parameter assignments
         self.radius = radius  # Core region radius
         self.decay = decay  # Decay coefficient
-        self.wall_strength = wall_strength  # Wall potential strength
-        self.wall_offset = wall_offset  # Wall potential distance offset
         
-        # Initialize mobility control parameters - New simplified design
-        self.mobility_control = mobility_control
-        
-        if mobility_control is None:
-            # Default: all atoms are mobile
-            self.mobile_atoms = None  # None means all atoms mobile
-            self.mobility_region = None
-            self.wall_strength = 0.0  # No wall potential by default
-            self.wall_offset = 2.0
-        elif isinstance(mobility_control, dict):
-            # Parse mobility control configuration
-            mode = mobility_control.get('mode', 'all')  # 'all', 'region', 'indices_free', or 'indices_fix'
-            
-            if mode == 'all':
-                # All atoms mobile (default)
-                self.mobile_atoms = None
-                self.mobility_region = None
-            elif mode == 'indices_free':
-                # Specific atoms explicitly set as mobile; others are fixed
-                idx = mobility_control.get('indices_free', [])
-                self.mobile_atoms = np.array(idx, dtype=int)
-                self.mobility_region = None
-            elif mode == 'indices_fix':
-                # Specific atoms explicitly set as fixed; others are mobile
-                fixed = np.array(mobility_control.get('indices_fix', []), dtype=int)
-                all_idx = np.arange(len(self.atoms), dtype=int)
-                mobile = np.setdiff1d(all_idx, fixed, assume_unique=False)
-                self.mobile_atoms = mobile
-                self.mobility_region = None
-            elif mode == 'region':
-                # Region-based control
-                self.mobile_atoms = None
-                region_type = mobility_control.get('region_type', 'sphere')
-                
-                if region_type == 'sphere':
-                    # Sphere region: center + radius
-                    self.mobility_region = {
-                        'type': 'sphere',
-                        'center': np.array(mobility_control.get('center', [0, 0, 0])),
-                        'radius': mobility_control.get('radius', 10.0)
-                    }
-                elif region_type == 'slab':
-                    # Slab region: between two planes
-                    # Planes defined by normal and two distances
-                    self.mobility_region = {
-                        'type': 'slab',
-                        'normal': np.array(mobility_control.get('normal', [0, 0, 1])),
-                        'min_dist': mobility_control.get('min_dist', -5.0),
-                        'max_dist': mobility_control.get('max_dist', 5.0),
-                        'origin': np.array(mobility_control.get('origin', [0, 0, 0]))
-                    }
-                else:
-                    raise ValueError(f"Unknown region_type: {region_type}")
-            else:
-                raise ValueError(f"Unknown mobility control mode: {mode}")
-            
-            # Wall potential settings
-            self.wall_strength = mobility_control.get('wall_strength', wall_strength)
-            self.wall_offset = mobility_control.get('wall_offset', wall_offset)
-        else:
+        # Mobility control is fully normalized in cosmos_run.py; do not parse input.json here
+        self.mobile_atoms = None
+        self.mobility_region = None
+        # Default wall settings
+        self.wall_strength = wall_strength
+        self.wall_offset = wall_offset
+        if isinstance(mobility_control, dict):
+            self.mobile_atoms = mobility_control['mobile_atoms']
+            self.mobility_region = mobility_control['mobility_region']
+            self.wall_strength = mobility_control['wall_strength']
+            self.wall_offset = mobility_control['wall_offset']
+        elif mobility_control is not None:
             raise ValueError(f"Invalid mobility_control type: {type(mobility_control)}")
         
         # Handle additional parameters
@@ -183,12 +139,30 @@ class CoSMoSSearch:
         self.pool = []  # Stores all found minimum energy structures
         self.real_energies = []  # Stores corresponding structure energies
         
+        # Compute mobility mask once at initialization
+        # mobility_region is in fractional coordinates and does not change during SSW
+        if (self.mobile_atoms is not None) or (self.mobility_region is not None):
+            self.mobile_mask = get_mobility_mask(self.atoms, self.mobile_atoms, self.mobility_region)
+            # Cache number of mobile atoms
+            self.n_mobile = int(np.sum(self.mobile_mask))
+            # Apply FixAtoms constraint to immobile atoms
+            # This ensures local minimization respects mobility constraints
+            fixed_indices = [i for i in range(len(self.atoms)) if not self.mobile_mask[i]]
+            if len(fixed_indices) > 0:
+                constraint = FixAtoms(indices=fixed_indices)
+                self.atoms.set_constraint(constraint)
+                print(f"Applied FixAtoms constraint to {len(fixed_indices)} immobile atoms.")
+        else:
+            self.mobile_mask = None
+            # Cache when all atoms are mobile
+            self.n_mobile = len(self.atoms)
+        
         # Initial structure optimization (real potential)
         self.atoms.calc = self.base_calc
         self._local_minimize(self.atoms)
         
         # Detect geometry type using occupancy ratios (cluster/slab/wire/bulk)
-        self.geometry_type, self.vacuum_axes = self._infer_geometry_type(self.atoms)
+        self.geometry_type, self.vacuum_axes = infer_geometry_type(self.atoms)
         self.is_cluster = (self.geometry_type == 'cluster')
         # Axes with significant vacuum margins (set in _infer_geometry_type)
         # Compute box center in Cartesian
@@ -213,6 +187,7 @@ class CoSMoSSearch:
         if self.initial_cluster_center is not None:
             print(f"Initial center set to box center on axes {', '.join(dims)}: {self.initial_cluster_center}")
             print("Recentering will be applied after accepted moves along the vacuum axes.")
+        
         self._add_to_pool(self.atoms)
 
     def _local_minimize(self, atoms, calc=None, fmax=None):
@@ -229,8 +204,12 @@ class CoSMoSSearch:
             atoms.calc = calc
         # Use LBFGS optimizer instead of BFGS, complies with documentation steps 4 and 6
         from ase.optimize import LBFGS
-        opt = LBFGS(atoms, logfile=None)
+        opt = LBFGS(atoms,logfile=None)
         opt.run(fmax=fmax or self.fmax)
+        
+        # Output final optimized energy
+        final_energy = atoms.get_potential_energy()
+        print(f"Local minimization completed: E = {final_energy:.6f} eV")
 
     def _add_to_pool(self, atoms):
         """
@@ -256,165 +235,75 @@ class CoSMoSSearch:
         
         print(f"Found new minimum #{idx}: E = {real_e:.6f} eV")
 
-    def _get_mobility_mask(self):
-        """
-        Get boolean mask for mobile atoms.
-        Returns array where True = mobile, False = immobile
-        """
-        n_atoms = len(self.atoms)
-        
-        # Default: all atoms mobile
-        if self.mobile_atoms is None and self.mobility_region is None:
-            return np.ones(n_atoms, dtype=bool)
-        
-        # Index-based control
-        if self.mobile_atoms is not None:
-            mask = np.zeros(n_atoms, dtype=bool)
-            mask[self.mobile_atoms] = True
-            return mask
-        
-        # Region-based control
-        if self.mobility_region is not None:
-            positions = self.atoms.get_positions()
-            mask = np.zeros(n_atoms, dtype=bool)
-            
-            if self.mobility_region['type'] == 'sphere':
-                center = self.mobility_region['center']
-                radius = self.mobility_region['radius']
-                distances = np.linalg.norm(positions - center, axis=1)
-                mask = distances <= radius
-                
-            elif self.mobility_region['type'] == 'slab':
-                normal = self.mobility_region['normal']
-                normal = normal / np.linalg.norm(normal)
-                origin = self.mobility_region['origin']
-                min_dist = self.mobility_region['min_dist']
-                max_dist = self.mobility_region['max_dist']
-                
-                # Project positions onto normal direction
-                vectors = positions - origin
-                distances = np.dot(vectors, normal)
-                mask = (distances >= min_dist) & (distances <= max_dist)
-            
-            return mask
-        
-        return np.ones(n_atoms, dtype=bool)
-    
-    def _calculate_wall_potential(self, atoms):
-        """
-        Calculate wall potential to keep mobile atoms from entering too deep into immobile regions.
-        Mobile atoms can penetrate wall_offset distance into immobile region before feeling repulsion.
-        
-        Returns:
-            wall_energy: Total wall potential energy
-            wall_forces: Forces from wall potential (3N flattened array)
-        """
-        if self.wall_strength == 0 or self.mobility_region is None:
-            return 0.0, np.zeros(3 * len(atoms))
-        
-        positions = atoms.get_positions()
-        n_atoms = len(atoms)
-        wall_energy = 0.0
-        wall_forces = np.zeros(3 * n_atoms)
-        
-        mobile_mask = self._get_mobility_mask()
-        
-        if self.mobility_region['type'] == 'sphere':
-            # For sphere: push atoms back if they go too far from center
-            center = self.mobility_region['center']
-            radius = self.mobility_region['radius']
-            
-            for i in range(n_atoms):
-                if not mobile_mask[i]:
-                    continue
-                
-                delta_r = positions[i] - center
-                dist = np.linalg.norm(delta_r)
-                
-                # Allow penetration up to wall_offset beyond the mobile boundary
-                # If atom goes beyond (radius + wall_offset), apply repulsive force
-                if dist > radius + self.wall_offset:
-                    # Distance beyond allowed penetration
-                    overshoot = dist - radius - self.wall_offset
-                    # Quadratic potential: V = 0.5 * k * overshoot^2
-                    wall_energy += 0.5 * self.wall_strength * overshoot ** 2
-                    # Force: F = -k * overshoot * (direction)
-                    direction = delta_r / dist if dist > 0 else np.zeros(3)
-                    force = -self.wall_strength * overshoot * direction
-                    wall_forces[3*i:3*i+3] = force
-        
-        elif self.mobility_region['type'] == 'slab':
-            # For slab: push atoms back if they penetrate too far through the planes
-            normal = self.mobility_region['normal']
-            normal = normal / np.linalg.norm(normal)
-            origin = self.mobility_region['origin']
-            min_dist = self.mobility_region['min_dist']
-            max_dist = self.mobility_region['max_dist']
-            
-            for i in range(n_atoms):
-                if not mobile_mask[i]:
-                    continue
-                
-                # Project position onto normal direction
-                delta_r = positions[i] - origin
-                proj_dist = np.dot(delta_r, normal)
-                
-                # Check penetration beyond allowed boundaries
-                if proj_dist < min_dist - self.wall_offset:
-                    # Penetrated too far through lower plane
-                    overshoot = (min_dist - self.wall_offset) - proj_dist
-                    wall_energy += 0.5 * self.wall_strength * overshoot ** 2
-                    # Force pushes in +normal direction
-                    force = self.wall_strength * overshoot * normal
-                    wall_forces[3*i:3*i+3] = force
-                    
-                elif proj_dist > max_dist + self.wall_offset:
-                    # Penetrated too far through upper plane
-                    overshoot = proj_dist - (max_dist + self.wall_offset)
-                    wall_energy += 0.5 * self.wall_strength * overshoot ** 2
-                    # Force pushes in -normal direction
-                    force = -self.wall_strength * overshoot * normal
-                    wall_forces[3*i:3*i+3] = force
-        
-        return wall_energy, wall_forces
 
     def _get_atomic_energies(self, atoms):
         """
-        Get per-atom energies. If the calculator doesn't support it (e.g., VASP),
-        use a fallback FAIRChem calculator.
+        Get per-atom energies with fallback chain:
+        1. Try primary calculator (native support)
+        2. If deepmd: use DeepMDCalculatorWithAtomicEnergy
+        3. If nequip: use NequIP's native per-atom energies
+        4. If fails: try NequIP as fallback calculator
+        5. Last resort: uniform distribution (zeros)
         
         Returns:
             np.ndarray: Per-atom energies
         """
+        # Special handling for DeepMD: use custom wrapper
+        if self.potential_type == 'deepmd':
+            if not hasattr(self, '_deepmd_atomic_calc'):
+                from cosmos_utils import DeepMDCalculatorWithAtomicEnergy
+                model_path = self.base_calc.dp.model_file
+                self._deepmd_atomic_calc = DeepMDCalculatorWithAtomicEnergy(model=model_path)
+                print("Initialized DeepMDCalculatorWithAtomicEnergy for per-atom energy calculation.")
+            
+            temp_atoms = atoms.copy()
+            temp_atoms.calc = self._deepmd_atomic_calc
+            atomic_energies = temp_atoms.get_potential_energies()
+            return atomic_energies
+        
+        # Try primary calculator first (including NequIP)
         temp_atoms = atoms.copy()
         temp_atoms.calc = self.base_calc
         
         try:
-            # Try to get per-atom energies from the calculator
             atomic_energies = temp_atoms.get_potential_energies()
             return atomic_energies
         except (AttributeError, NotImplementedError, RuntimeError) as e:
-            # Calculator doesn't support per-atom energies, use FAIRChem fallback
-            print(f"Warning: Base calculator doesn't support per-atom energies. Using FAIRChem fallback.")
+            # Primary calculator doesn't support per-atom energies
+            if not hasattr(self, '_atomic_energy_warning_shown'):
+                print(f"Warning: Primary calculator ({self.potential_type}) doesn't support per-atom energies.")
+                print("Attempting NequIP fallback for atomic energy calculation...")
+                self._atomic_energy_warning_shown = True
+            
+            # Try NequIP as fallback calculator
             try:
-                # Import and setup FAIRChem calculator if not already cached
-                if not hasattr(self, '_fairchem_calc'):
-                    from fairchem.core import OCPCalculator
-                    # Use a lightweight pretrained model for fast inference
-                    self._fairchem_calc = OCPCalculator(
-                        model_name="EquiformerV2-31M-S2EF-OC20-All+MD",
-                        cpu=True
-                    )
-                    print("FAIRChem calculator initialized for per-atom energy calculation.")
+                if not hasattr(self, '_nequip_atomic_calc'):
+                    # Check if nequip_config is available in input
+                    if hasattr(self, 'nequip_config') and self.nequip_config:
+                        from nequip.ase import NequIPCalculator
+                        model_path = self.nequip_config.get('model')
+                        device = self.nequip_config.get('device', 'cpu')
+                        self._nequip_atomic_calc = NequIPCalculator.from_deployed_model(
+                            model_path=model_path,
+                            device=device
+                        )
+                        print(f"Initialized NequIP calculator from config for per-atom energy calculation.")
+                    else:
+                        # No NequIP config available, skip to uniform fallback
+                        raise AttributeError("No NequIP configuration available for fallback.")
                 
-                # Calculate per-atom energies with FAIRChem
-                temp_atoms_fc = atoms.copy()
-                temp_atoms_fc.calc = self._fairchem_calc
-                atomic_energies = temp_atoms_fc.get_potential_energies()
+                temp_atoms_nq = atoms.copy()
+                temp_atoms_nq.calc = self._nequip_atomic_calc
+                atomic_energies = temp_atoms_nq.get_potential_energies()
+                print("Successfully obtained per-atom energies from NequIP fallback.")
                 return atomic_energies
-            except Exception as fc_error:
-                print(f"Warning: FAIRChem fallback also failed: {fc_error}")
-                print("Falling back to uniform distribution for random direction generation.")
+                
+            except Exception as nq_error:
+                if not hasattr(self, '_nequip_fallback_warning_shown'):
+                    print(f"Warning: NequIP fallback also failed: {nq_error}")
+                    print("Using uniform energy distribution for random direction generation.")
+                    self._nequip_fallback_warning_shown = True
+                
                 # Return uniform energies as last resort
                 return np.zeros(len(atoms))
     
@@ -429,15 +318,27 @@ class CoSMoSSearch:
         atomic_energies = self._get_atomic_energies(atoms)
         
         # Get chemical symbols and find minimum energy for each element as reference
+        # Only consider mobile atoms for energy comparison
         symbols = atoms.get_chemical_symbols()
         unique_elements = list(set(symbols))
         
-        # Calculate reference energies (minimum energy for each element)
+        # Determine which atoms are mobile
+        if self.mobile_mask is not None:
+            mobile_indices = [i for i in range(len(atoms)) if self.mobile_mask[i]]
+        else:
+            mobile_indices = list(range(len(atoms)))
+        
+        # Calculate reference energies (minimum energy for each element among mobile atoms)
         reference_energies = {}
         for element in unique_elements:
-            element_indices = [i for i, sym in enumerate(symbols) if sym == element]
-            element_energies = atomic_energies[element_indices]
-            reference_energies[element] = np.min(element_energies)
+            # Find mobile atoms of this element
+            element_mobile_indices = [i for i in mobile_indices if symbols[i] == element]
+            if len(element_mobile_indices) > 0:
+                element_energies = atomic_energies[element_mobile_indices]
+                reference_energies[element] = np.min(element_energies)
+            else:
+                # No mobile atoms of this element, use 0 as reference
+                reference_energies[element] = 0.0
         
         # Normalize energies relative to element-specific references
         normalized_energies = np.zeros(len(atoms))
@@ -452,9 +353,11 @@ class CoSMoSSearch:
         scales = np.exp(normalized_energies)
         
         # Normalize scales to have reasonable magnitude (mean = 1)
-        mean_scale = np.mean(scales)
-        if mean_scale > 0:
-            scales = scales / mean_scale
+        # Only use mobile atoms for normalization
+        if len(mobile_indices) > 0:
+            mean_scale = np.mean(scales[mobile_indices])
+            if mean_scale > 0:
+                scales = scales / mean_scale
         
         return scales
 
@@ -467,42 +370,54 @@ class CoSMoSSearch:
         Returns:
             N: Normalized random direction vector
         """
+        mode = getattr(self, 'random_direction_mode', 'atomic_plus_nl')
+        
+        # If mode is 'python', load and use user-defined function
+        if mode == 'python':
+            return self._generate_random_direction_python(atoms)
+        
+        # Otherwise, use built-in methods
         n_atoms = len(atoms)
         
-        # Get energy-based scales for each atom
-        # Atoms with higher energy (less stable) will have larger scales
-        energy_scales = self._get_energy_based_scales(atoms)
-        
-        # Generate global soft movement direction Ns using energy-weighted Gaussian sampling
-        # Instead of uniform Maxwell-Boltzmann, we use exp(E_atom) as scale for each atom
+        # Generate global soft movement direction Ns according to mode
         Ns = np.zeros(3 * n_atoms)
+        mass = 1.0  # Atomic mass unit
+        base_scale = np.sqrt(self.k_boltzmann * self.temperature)
+        mode = getattr(self, 'random_direction_mode', 'atomic_plus_nl')
+        use_atomic = ('atomic' in mode)
+        include_nl = ('plus_nl' in mode)
+        
+        # Get energy scales ONCE before loop (if needed)
+        if use_atomic:
+            energy_scales = self._get_energy_based_scales(atoms)
+        
         for i in range(n_atoms):
-            # Each atom gets a Gaussian random vector with scale proportional to exp(E_atom)
-            # Base scale from temperature
-            mass = 1.0  # Atomic mass unit
-            #base_scale = np.sqrt(self.k_boltzmann * self.temperature / mass)
-            base_scale = np.sqrt(self.k_boltzmann * self.temperature)
-            # Multiply by energy-based scale for this atom
-            atom_scale = base_scale * energy_scales[i]
-            # Generate 3 random components for this atom
+            if use_atomic:
+                # Atoms with higher energy (less stable) will have larger scales
+                atom_scale = base_scale * energy_scales[i]
+            else:
+                atom_scale = base_scale
             Ns[3*i:3*i+3] = np.random.normal(0, atom_scale, 3)
         
-        # Apply mobility mask: set Ns to zero for immobile atoms
-        if self.mobility_control is not None:
-            # Get mobility mask (True = mobile, False = immobile)
-            mobile_mask = self._get_mobility_mask()
-            # Set Ns components to zero for immobile atoms
+        # Apply mobility mask: set Ns to zero for immobile atoms BEFORE normalization
+        # This ensures fixed atoms don't contribute to the random direction
+        if self.mobile_mask is not None:
             for i in range(n_atoms):
-                if not mobile_mask[i]:
+                if not self.mobile_mask[i]:
                     Ns[3*i:3*i+3] = 0.0
+        print('Ns', Ns)  # Debug: print Ns vector
         
         # Generate local rigid movement direction Nl (non-adjacent atom bonding pattern)
         Nl = np.zeros(3 * n_atoms)
-        if n_atoms >= 2:
+        selected_pair = None  # Track the selected atom pair for Nl
+        pair_distance = 0.0
+        if include_nl and (n_atoms >= 2):
             # Randomly select two non-adjacent atoms
             # Filter atoms in mobile region
-            mobile_mask = self._get_mobility_mask()
-            mobile_atoms = np.where(mobile_mask)[0].tolist()
+            if self.mobile_mask is not None:
+                mobile_atoms = np.where(self.mobile_mask)[0].tolist()
+            else:
+                mobile_atoms = list(range(n_atoms))
             
             # Check if there are enough mobile atoms
             if len(mobile_atoms) < 2:
@@ -522,12 +437,15 @@ class CoSMoSSearch:
                 
                 if distance > 3.0:  # Only when atomic distance > 3Å
                     # Generate local rigid movement direction according to equation (2) in paper
-                    Nl[3*i:3*i+3] = qj
-                    Nl[3*j:3*j+3] = qi
-                    norm = np.linalg.norm(Nl)
-                    if norm == 0:
-                        raise ValueError("Norm of Nl direction vector is zero, cannot normalize.")
-                    Nl /= norm
+                    # Nl = [qB - qA at position A, qA - qB at position B, 0, ...]
+                    Nl[3*i:3*i+3] = qj - qi
+                    Nl[3*j:3*j+3] = qi - qj
+                    # Scale Nl to a fixed magnitude to avoid excessive displacement for distant pairs
+                    nl_norm = np.linalg.norm(Nl)
+                    if nl_norm > 0:
+                        Nl = (Nl / nl_norm) * 2.0
+                    selected_pair = (i, j)
+                    pair_distance = distance
                     found = True
                 
                 attempts += 1
@@ -536,33 +454,134 @@ class CoSMoSSearch:
                 raise ValueError(f"Failed to find atom pair with distance > 3Å after {max_attempts} attempts, cannot generate local rigid movement direction.")
         
         # Mix direction vectors - according to paper equation (1)
+        # Normalization strategy: scale by sqrt(N_mobile) to balance between:
+        # 1) Avoiding dilution in large systems (each atom gets reasonable displacement)
+        # 2) Preserving relative displacement magnitudes from energy weighting
         lambda_param = np.random.uniform(0.1, 1.5)
-        # Ensure Ns and Nl are normalized
-        Ns_norm = np.linalg.norm(Ns)
-        Nl_norm = np.linalg.norm(Nl)
         
-        if Ns_norm > 0:
-            Ns = Ns / Ns_norm
-        if Nl_norm > 0:
-            Nl = Nl / Nl_norm
-            
-        N = Ns + lambda_param * Nl
-        N /= np.linalg.norm(N) if np.linalg.norm(N) > 0 else 1
+        # Count mobile atoms (cached)
+        n_mobile = getattr(self, 'n_mobile', n_atoms)
+        
+        # Combine Ns and optional Nl
+        if include_nl:
+            N = Ns + lambda_param * Nl
+        else:
+            N = Ns
+        
+        # Normalize and scale by sqrt(n_mobile)
+        N_norm = np.linalg.norm(N)
+        print('N before norm', N)  # Debug: print N vector        
+        if N_norm > 0:
+            N = N / N_norm * np.sqrt(n_mobile)
+        print('N', N)  # Debug: print N vector
+        # Debug output: show displacement statistics
+        print(f"\n=== Random Direction Generation ===")
+        print(f"Number of atoms: {n_atoms}, Mobile atoms: {n_mobile}")
+        print(f"Lambda: {lambda_param:.3f}, |N| before scaling: {N_norm:.3f}, |N| after: {np.linalg.norm(N):.3f}")
+        print(f"Step size ds: {self.ds:.4f} Å")
+        
+        # Show selected atom pair for Nl
+        if selected_pair is not None:
+            i, j = selected_pair
+            print(f"\nSelected atom pair for Nl: atoms {i} and {j}, distance = {pair_distance:.3f} Å")
+        
+        # Show per-atom displacement magnitudes
+        displacements = []
+        for i in range(n_atoms):
+            disp_vec = N[3*i:3*i+3]
+            disp_mag = np.linalg.norm(disp_vec)
+            actual_disp = self.ds * disp_mag
+            is_mobile = "mobile" if (self.mobile_mask is None or self.mobile_mask[i]) else "fixed"
+            displacements.append((i, disp_mag, actual_disp, is_mobile))
+        
+        # Print statistics
+        mobile_disps = [d[2] for d in displacements if d[3] == "mobile"]
+        if mobile_disps:
+            print(f"Mobile atom displacements (Å): min={min(mobile_disps):.4f}, "
+                  f"max={max(mobile_disps):.4f}, mean={np.mean(mobile_disps):.4f}")
+        
+        # Find top 2 atoms with largest displacement
+        sorted_disps = sorted(displacements, key=lambda x: x[2], reverse=True)
+        print(f"\nTop 2 atoms with largest displacement:")
+        for idx, (atom_i, mag, actual, status) in enumerate(sorted_disps[:2]):
+            vec = N[3*atom_i:3*atom_i+3]
+            in_pair = " <- IN SELECTED PAIR" if (selected_pair and atom_i in selected_pair) else ""
+            print(f"  #{idx+1}: Atom {atom_i:4d} | {status:6s} | |N_i|={mag:6.3f} | disp={actual:8.4f} Å{in_pair}")
+            print(f"       Direction: [{vec[0]:7.3f}, {vec[1]:7.3f}, {vec[2]:7.3f}]")
+        
+        # Print detailed per-atom info (first 10 atoms)
+        print("\nPer-atom displacement (first 10 atoms):")
+        print("Atom | Status | |N_i| | ds*|N_i| (Å) | Direction")
+        for i, mag, actual, status in displacements[:10]:
+            vec = N[3*i:3*i+3]
+            print(f"{i:4d} | {status:6s} | {mag:6.3f} | {actual:8.4f} | [{vec[0]:7.3f}, {vec[1]:7.3f}, {vec[2]:7.3f}]")
+        if n_atoms > 10:
+            print(f"... ({n_atoms - 10} more atoms)")
+        print("="*60)
+        
+        return N
+    
+    def _generate_random_direction_python(self, atoms):
+        """
+        Generate random direction using user-defined Python function.
+        Loads generate_random_direction.py from working directory.
+        
+        Returns:
+            N: Random direction vector from user function
+        """
+        import sys
+        import os
+        
+        # Get current working directory
+        cwd = os.getcwd()
+        script_path = os.path.join(cwd, 'generate_random_direction.py')
+        
+        if not os.path.exists(script_path):
+            raise FileNotFoundError(
+                f"Custom random direction script not found: {script_path}\n"
+                f"When random_direction_mode='python', you must provide generate_random_direction.py "
+                f"in the working directory with a function generate_random_direction(atoms) that returns N."
+            )
+        
+        # Import user module
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("user_random_direction", script_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Failed to load {script_path}")
+        
+        user_module = importlib.util.module_from_spec(spec)
+        sys.modules['user_random_direction'] = user_module
+        spec.loader.exec_module(user_module)
+        
+        # Check if function exists
+        if not hasattr(user_module, 'generate_random_direction'):
+            raise AttributeError(
+                f"Module {script_path} must define a function 'generate_random_direction(atoms)' that returns N."
+            )
+        
+        # Call user function
+        user_func = user_module.generate_random_direction
+        N = user_func(atoms)
+        
+        # Validate output
+        n_atoms = len(atoms)
+        expected_size = 3 * n_atoms
+        if not isinstance(N, np.ndarray):
+            N = np.array(N)
+        
+        if N.shape != (expected_size,):
+            raise ValueError(
+                f"User function generate_random_direction must return a 1D numpy array of size {expected_size} (3*n_atoms), "
+                f"but got shape {N.shape}"
+            )
+        
+        print(f"\n=== Random Direction Generation (Python Mode) ===")
+        print(f"Loaded custom function from: {script_path}")
+        print(f"Direction vector |N| = {np.linalg.norm(N):.6f}")
+        print("="*60)
+        
         return N
 
-    def _apply_random_move(self, atoms, direction):
-        """Apply random movement to atomic structure"""
-        new_atoms = atoms.copy()
-        # Apply mobility mask: only mobile atoms move
-        if self.mobility_control is not None:
-            mobile_mask = self._get_mobility_mask()
-            for i in range(len(atoms)):
-                if not mobile_mask[i]:
-                    direction[3*i:3*i+3] = 0.0
-        # Apply direction vector and step size
-        new_pos = new_atoms.get_positions().flatten() + self.ds * direction
-        new_atoms.set_positions(new_pos.reshape(-1, 3))
-        return new_atoms
 
     def _get_real_energy(self, atoms):
         """
@@ -587,35 +606,6 @@ class CoSMoSSearch:
                     shift[i] = 0.0
             atoms.set_positions(pos + shift)
     
-    def _infer_geometry_type(self, atoms, vacuum_threshold_angstrom: float = 3.0):
-        """
-        Infer geometry type based on absolute vacuum margins (Å) along each lattice axis.
-        Returns a tuple: (geometry_type, vacuum_axes).
-        vacuum_axes lists axes with significant vacuum on both sides.
-        """
-        # Use absolute positions for vacuum detection (avoid relying solely on fractional coords)
-        pos = atoms.get_positions()  # Cartesian positions within the cell
-        cell = atoms.get_cell()
-        axis_lengths = np.array([np.linalg.norm(cell[0]), np.linalg.norm(cell[1]), np.linalg.norm(cell[2])])
-        # Compute absolute margins to cell boundaries for each axis
-        min_abs = pos.min(axis=0)
-        max_abs = pos.max(axis=0)
-        margin_low_abs = min_abs  # distance to 0 boundary
-        margin_high_abs = axis_lengths - max_abs  # distance to upper boundary
-        axes = []
-        for i in range(3):
-            if margin_low_abs[i] > vacuum_threshold_angstrom and margin_high_abs[i] > vacuum_threshold_angstrom:
-                axes.append(i)
-        n = len(axes)
-        if n == 3:
-            geom = 'cluster'
-        elif n == 2:
-            geom = 'wire'
-        elif n == 1:
-            geom = 'slab'
-        else:
-            geom = 'bulk'
-        return geom, axes
 
     def _write_step_output(self, step, atoms, energy):
         """
@@ -668,36 +658,38 @@ class CoSMoSSearch:
             for n in range(1, self.H + 1):
                 # Calculate direction vector
                 if n == 1:
-                    # First step uses optimized direction
+                    # First step uses optimized direction from Step 2
                     N = optimized_direction
                 else:
-                    # Subsequent steps generate new random directions
-                    new_rand_dir = self._generate_random_direction(climb_atoms)
-                    # Optimize new direction using biased dimer rotation
-                    N = self._biased_dimer_rotation(climb_atoms, new_rand_dir)
+                    # Subsequent steps: refine direction using biased dimer rotation on current biased PES
+                    # No new random direction - use current climbing direction as initial guess
+                    N = self._biased_dimer_rotation(climb_atoms, N)
                 
                 # Apply mobility mask
-                if self.mobility_control is not None:
-                    mobile_mask = self._get_mobility_mask()
+                if self.mobile_mask is not None:
                     for i in range(len(climb_atoms)):
-                        if not mobile_mask[i]:
+                        if not self.mobile_mask[i]:
                             N[3*i:3*i+3] = 0.0
-                    N /= np.linalg.norm(N) if np.linalg.norm(N) > 0 else 1
+                # Keep N magnitude from rotation and n_mobile scaling (do not renormalize here)
                 
                 # CRITICAL: Move structure along direction N before adding bias potential
                 # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
+                # Add new Gaussian potential at the CURRENT position (before displacement)
+                g_param = self._add_gaussian(climb_atoms, N)
+                gaussian_params.append(g_param)
+                # Debug: report Gaussian parameters
+                d, R1, w = g_param
+                print(f"Added Gaussian #{n}: w={w:.4f}, sigma≈{self.ds:.4f} Å, |d|={np.linalg.norm(d):.4f}")
+                
+                # THEN displace structure along direction N by ds
                 climb_atoms_positions = climb_atoms.get_positions().flatten()
                 climb_atoms_positions += self.ds * N
                 climb_atoms.set_positions(climb_atoms_positions.reshape(-1, 3))
                 
-                # Add new Gaussian potential at the displaced position
-                g_param = self._add_gaussian(climb_atoms, N)
-                gaussian_params.append(g_param)
-                
                 # Calculate wall potential for current configuration
-                wall_energy, wall_forces = self._calculate_wall_potential(climb_atoms)
+                wall_energy, wall_forces = calculate_wall_potential(climb_atoms, self.mobility_region, self.wall_strength, self.wall_offset)
                 
-                # Create biased calculator
+                # Create biased calculator with all Gaussian potentials
                 biased_calc = BiasedCalculator(
                     base_calculator=self.base_calc,
                     gaussian_params=gaussian_params,
@@ -710,9 +702,17 @@ class CoSMoSSearch:
                 climb_atoms.calc = biased_calc
                 self._local_minimize(climb_atoms)
                 
+                E_base, E_bias, E_wall = climb_atoms.calc.results['energy_components']
+                print(f"Bias energy components: "
+                    f"base = {E_base:.6f} eV, "
+                    f"bias = {E_bias:.6f} eV, "
+                    f"wall = {E_wall:.6f} eV"
+                 )
+
                 # Compute real energy
                 current_climb_energy = self._get_real_energy(climb_atoms)
                 Emax = max(Emax, current_climb_energy)
+                
                 
                 # Algorithm Step 5: Check stopping condition
                 # Stop if: (i) reached max Gaussians H, or (ii) structure relaxed back below starting energy
@@ -808,7 +808,7 @@ class CoSMoSSearch:
             N = N / norm_N
         else:
             return initial_direction
-        
+              
         # Dimer parameters from SSW paper
         delta_R = 0.005  # Dimer separation (typical: 0.005 Å)
         theta_trial = 0.5 * np.pi / 180.0  # Trial rotation angle (radians), ~0.5 degrees
@@ -820,6 +820,10 @@ class CoSMoSSearch:
         
         # Current position (flattened)
         R0_flat = atoms.positions.flatten()
+        
+        print(f"\n--- Dimer Rotation ---")
+        print(f"Initial |N| = {norm_N:.6f}")
+        print(f"Parameters: ΔR={delta_R:.5f} Å, θ_trial={np.degrees(theta_trial):.3f}°, max_iter={max_rotations}")
         
         # Iteratively rotate dimer to find optimal direction
         for rotation_iter in range(max_rotations):
@@ -845,7 +849,11 @@ class CoSMoSSearch:
             
             # Check convergence: if rotational force is small, stop rotation
             F_rot_mag = np.linalg.norm(F_rot)
+            
+            print(f"  Iter {rotation_iter+1}: C={C:10.4f} eV/Å², |F_rot|={F_rot_mag:8.4f} eV/Å", end="")
+            
             if F_rot_mag < f_rot_tol:
+                print(" <- CONVERGED")
                 break
             
             # Compute rotation angle using finite difference
@@ -853,6 +861,7 @@ class CoSMoSSearch:
             if F_rot_mag > 1e-10:
                 F_rot_normalized = F_rot / F_rot_mag
             else:
+                print(" <- No rotation needed")
                 break  # No significant rotation needed
             
             # Trial rotation with small angle
@@ -886,13 +895,17 @@ class CoSMoSSearch:
             else:
                 theta_opt = 0.0
             
+            print(f", θ_opt={np.degrees(theta_opt):7.3f}°")
+            
             # Apply optimal rotation
             if abs(theta_opt) > 1e-6:
                 N = N * np.cos(theta_opt) + F_rot_normalized * np.sin(theta_opt)
                 N = N / np.linalg.norm(N)
             else:
+                print("  -> Rotation angle too small, converged")
                 break  # Converged
         
+        print(f"Dimer rotation completed after {rotation_iter+1} iterations")
         return N
 
 
@@ -903,20 +916,20 @@ class CoSMoSSearch:
         
         Parameters:
             atoms: Current atomic structure
-            direction: Gaussian potential direction vector
+            direction: Gaussian potential direction vector (already scaled by sqrt(n_mobile))
             
         Returns:
-            tuple: (d, R1, w) - contains unit direction vector, reference position and height parameters of the tuple
+            tuple: (d, R1, w) - contains direction vector, reference position and height parameters
         """
-        # Ensure direction vector is unit vector
-        norm = np.linalg.norm(direction)
-        d = direction / norm if norm > 0 else direction
+        # Use direction as-is (already properly scaled)
+        # DO NOT normalize - direction should preserve sqrt(n_mobile) scaling for proper projection
+        d = direction.copy()
         
         # Use current atomic position as reference position R1
         R1 = atoms.positions.copy()
         
-        # Adjust Gaussian potential height according to the climbing phase, earlier steps use smaller w, later steps use larger w to encourage further exploration
-        w = self.w  # Can be adjusted according to strategy
+        # Adjust Gaussian potential height according to the climbing phase
+        w = self.w
         
         return (d, R1, w)
     

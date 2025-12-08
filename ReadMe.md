@@ -179,9 +179,50 @@ Requires a `calculator.py` file in the working directory.
   - `gaussian_height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.1)
   - `gaussian_width`: Width of Gaussian potentials in Å (ds parameter, default: 0.2)
   - `max_gaussians`: Maximum number of Gaussians per climbing (H parameter, default: 14)
+  - `random_direction_mode`: Method for generating random search directions (default: "atomic_plus_nl")
+    - `"base"` or `1`: Use uniform random vectors `N(0, base_scale, 3)` for all mobile atoms
+    - `"atomic"` or `2`: Use energy-weighted random vectors `N(0, atomic_scale, 3)` based on per-atom energies
+    - `"base_plus_nl"` or `3`: Combine uniform random with local rigid movement (Nl)
+    - `"atomic_plus_nl"` or `4`: Combine energy-weighted random with local rigid movement (Nl) [default]
+    - `"python"`: Use custom user-defined function (see below)
   - `optimizer`: Local optimization settings
     - `max_steps`: Maximum optimization steps (default: 500)
     - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
+
+##### Custom Random Direction Generation
+When `random_direction_mode` is set to `"python"`, you can provide your own random direction generation function:
+
+1. Create a file named `generate_random_direction.py` in your working directory
+2. Define a function with this signature:
+```python
+import numpy as np
+from ase import Atoms
+
+def generate_random_direction(atoms: Atoms) -> np.ndarray:
+    """
+    Generate custom random direction vector for SSW algorithm.
+    
+    Parameters:
+        atoms: ASE Atoms object representing current structure
+    
+    Returns:
+        N: 1D numpy array of size (3*n_atoms,) representing the direction vector
+           Format: [x0, y0, z0, x1, y1, z1, ..., xn, yn, zn]
+    """
+    n_atoms = len(atoms)
+    N = np.random.randn(3 * n_atoms)  # Your custom logic here
+    return N
+```
+
+3. Set in `input.json`:
+```json
+"climbing": {
+  "random_direction_mode": "python",
+  ...
+}
+```
+
+The function receives the current atomic structure and must return a flattened direction vector. You have full access to atomic positions, chemical symbols, energies, and any other ASE Atoms attributes to implement custom logic.
 
 #### Mobility Control Layer (Optional)
 The mobility control feature allows you to constrain which atoms can move during optimization. **By default, all atoms are mobile.**
@@ -254,6 +295,36 @@ Or simply omit the `mobility_control` section entirely.
 - `normal`: Normal vector of the planes [x, y, z]
 - `min_dist`: Minimum distance along normal direction (in Å)
 - `max_dist`: Maximum distance along normal direction (in Å)
+
+*Lower region (below threshold along an axis):*
+```json
+"mobility_control": {
+  "mode": "region",
+  "region_type": "lower",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `region_type`: `"lower"` for atoms below/equal to threshold
+- `axis`: Coordinate axis (`"x"`, `"y"`, or `"z"`)
+- `threshold`: Threshold value in Å (atoms with axis coordinate ≤ threshold are mobile)
+
+*Upper region (above threshold along an axis):*
+```json
+"mobility_control": {
+  "mode": "region",
+  "region_type": "upper",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+```
+- `region_type`: `"upper"` for atoms above/equal to threshold
+- `axis`: Coordinate axis (`"x"`, `"y"`, or `"z"`)
+- `threshold`: Threshold value in Å (atoms with axis coordinate ≥ threshold are mobile)
 
 **Wall Potential:**
 When using mobility control with `wall_strength > 0`, a quadratic repulsive wall potential prevents mobile atoms from penetrating too deep into immobile regions:

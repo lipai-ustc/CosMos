@@ -6,7 +6,8 @@ from datetime import datetime
 import multiprocessing
 import numpy as np
 from ase import Atoms
-from ase.io import read, write
+from ase.io import read
+from ase.calculators.calculator import Calculator, all_changes
 from dscribe.descriptors import SOAP
 
 
@@ -156,53 +157,52 @@ def load_potential(potential_config):
         
         # Create FAIRChem calculator
         return FAIRChemCalculator(predictor, task_name=task_name)
+    elif pot_type == 'nequip':
+        from nequip.ase import NequIPCalculator
+        model_path = potential_config.get('model')
+        device = potential_config.get('device', 'cpu')
+        return NequIPCalculator.from_deployed_model(
+            model_path=model_path,
+            device=device
+        )
     elif pot_type == 'vasp':
         from ase.calculators.vasp import Vasp
-        # Parse VASP configuration from INCAR file
         incar_file = potential_config.get('model', 'INCAR')
-        vasp_params = {}
         
-        # Read INCAR file if it exists
+        # Try to read INCAR parameters if file exists
+        vasp_params = {}
         import os
         if os.path.exists(incar_file):
+            # Parse INCAR file to extract parameters
             with open(incar_file, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    # Skip comments and empty lines
-                    if not line or line.startswith('#') or line.startswith('!'):
-                        continue
-                    # Parse key = value pairs
-                    if '=' in line:
+                    if '=' in line and not line.startswith('#'):
                         key, value = line.split('=', 1)
-                        key = key.strip().lower()
-                        value = value.strip().split('#')[0].split('!')[0].strip()  # Remove inline comments
-                        
-                        # Convert value to appropriate type
+                        key = key.strip()
+                        value = value.strip()
+                        # Try to convert to appropriate type
                         try:
-                            # Try integer
-                            vasp_params[key] = int(value)
+                            if '.' in value:
+                                value = float(value)
+                            else:
+                                value = int(value)
                         except ValueError:
-                            try:
-                                # Try float
-                                vasp_params[key] = float(value)
-                            except ValueError:
-                                # Keep as string
-                                vasp_params[key] = value
+                            pass  # Keep as string
+                        vasp_params[key.lower()] = value
         else:
-            # Default VASP parameters if INCAR not found
+            # Use default PBE parameters
+            print(f"Warning: INCAR file '{incar_file}' not found. Using default PBE parameters.")
             vasp_params = {
                 'xc': 'PBE',
-                'encut': 400,
+                'prec': 'Accurate',
+                'encut': 520,
                 'ediff': 1e-5,
-                'kpts': (1, 1, 1),
                 'ismear': 0,
                 'sigma': 0.05
             }
-            print(f"Warning: INCAR file '{incar_file}' not found. Using default VASP parameters.")
         
         return Vasp(**vasp_params)
-    else:
-        raise ValueError(f"Unsupported potential type: {pot_type}")
 
 
 # Structure analysis and I/O utilities
@@ -254,16 +254,248 @@ def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
         return abs(energy - pool_energies[best_idx]) <= energy_tol
     return True
 
-def write_structure_with_energy(filename: str, atoms: Atoms, energy: float) -> None:
+# --- Geometry and Mobility Utilities ---
+
+def infer_geometry_type(atoms: Atoms, vacuum_threshold_angstrom: float = 3.0):
     """
-    Write structure and its energy information to XYZ file
+    Infer geometry type based on absolute vacuum margins (Å) along each lattice axis.
+    Returns a tuple: (geometry_type, vacuum_axes).
+    vacuum_axes lists axes with significant vacuum on both sides.
+    """
+    pos = atoms.get_positions()  # Cartesian positions within the cell
+    cell = atoms.get_cell()
+    axis_lengths = np.array([np.linalg.norm(cell[0]), np.linalg.norm(cell[1]), np.linalg.norm(cell[2])])
+    min_abs = pos.min(axis=0)
+    max_abs = pos.max(axis=0)
+    margin_low_abs = min_abs
+    margin_high_abs = axis_lengths - max_abs
+    axes = []
+    for i in range(3):
+        if margin_low_abs[i] > vacuum_threshold_angstrom and margin_high_abs[i] > vacuum_threshold_angstrom:
+            axes.append(i)
+    n = len(axes)
+    if n == 3:
+        geom = 'cluster'
+    elif n == 2:
+        geom = 'wire'
+    elif n == 1:
+        geom = 'slab'
+    else:
+        geom = 'bulk'
+    return geom, axes
+
+
+def get_mobility_mask(atoms: Atoms, mobile_atoms, mobility_region) -> np.ndarray:
+    """
+    Compute boolean mask for mobile atoms.
+    True = mobile, False = immobile
+    """
+    n_atoms = len(atoms)
+    if mobile_atoms is None and mobility_region is None:
+        return np.ones(n_atoms, dtype=bool)
+    if mobile_atoms is not None:
+        mask = np.zeros(n_atoms, dtype=bool)
+        mask[np.array(mobile_atoms, dtype=int)] = True
+        return mask
+    if mobility_region is not None:
+        positions = atoms.get_positions()
+        mask = np.zeros(n_atoms, dtype=bool)
+        if mobility_region['type'] == 'sphere':
+            center = np.array(mobility_region.get('center', [0, 0, 0]))
+            radius = mobility_region.get('radius', 0.0)
+            distances = np.linalg.norm(positions - center, axis=1)
+            mask = distances <= radius
+        elif mobility_region['type'] == 'slab':
+            normal = np.array(mobility_region.get('normal', [0, 0, 1]))
+            normal = normal / (np.linalg.norm(normal) or 1.0)
+            origin = np.array(mobility_region.get('origin', [0, 0, 0]))
+            min_dist = mobility_region.get('min_dist', -5.0)
+            max_dist = mobility_region.get('max_dist', 5.0)
+            vectors = positions - origin
+            distances = np.dot(vectors, normal)
+            mask = (distances >= min_dist) & (distances <= max_dist)
+        elif mobility_region['type'] in ('lower', 'upper'):
+            axis = mobility_region.get('axis', 'z').lower()
+            threshold = mobility_region.get('threshold', 0.0)
+            axis_map = {'x': 0, 'y': 1, 'z': 2}
+            if axis not in axis_map:
+                raise ValueError(f"Invalid axis '{axis}'. Must be 'x', 'y', or 'z'.")
+            axis_index = axis_map[axis]
+            coords = positions[:, axis_index]
+            if mobility_region['type'] == 'lower':
+                mask = coords <= threshold
+            else:  # upper
+                mask = coords >= threshold
+        return mask
+    return np.ones(n_atoms, dtype=bool)
+
+
+def calculate_wall_potential(atoms: Atoms, mobility_region, wall_strength: float, wall_offset: float):
+    """
+    Calculate wall potential energy and forces for mobile atoms relative to mobility_region.
+    Returns (wall_energy, wall_forces_flat)
+    """
+    if wall_strength == 0 or mobility_region is None:
+        return 0.0, np.zeros(3 * len(atoms))
+    positions = atoms.get_positions()
+    n_atoms = len(atoms)
+    wall_energy = 0.0
+    wall_forces = np.zeros(3 * n_atoms)
+    mobile_mask = get_mobility_mask(atoms, None, mobility_region) if mobility_region else np.ones(n_atoms, dtype=bool)
+    if mobility_region['type'] == 'sphere':
+        center = np.array(mobility_region.get('center', [0, 0, 0]))
+        radius = mobility_region.get('radius', 0.0)
+        for i in range(n_atoms):
+            if not mobile_mask[i]:
+                continue
+            delta_r = positions[i] - center
+            dist = np.linalg.norm(delta_r)
+            if dist > radius + wall_offset:
+                overshoot = dist - radius - wall_offset
+                wall_energy += 0.5 * wall_strength * overshoot ** 2
+                direction = delta_r / dist if dist > 0 else np.zeros(3)
+                force = -wall_strength * overshoot * direction
+                wall_forces[3*i:3*i+3] = force
+    elif mobility_region['type'] == 'slab':
+        normal = np.array(mobility_region.get('normal', [0, 0, 1]))
+        normal = normal / (np.linalg.norm(normal) or 1.0)
+        origin = np.array(mobility_region.get('origin', [0, 0, 0]))
+        min_dist = mobility_region.get('min_dist', -5.0)
+        max_dist = mobility_region.get('max_dist', 5.0)
+        for i in range(n_atoms):
+            if not mobile_mask[i]:
+                continue
+            delta_r = positions[i] - origin
+            proj_dist = np.dot(delta_r, normal)
+            if proj_dist < min_dist - wall_offset:
+                overshoot = (min_dist - wall_offset) - proj_dist
+                wall_energy += 0.5 * wall_strength * overshoot ** 2
+                force = wall_strength * overshoot * normal
+                wall_forces[3*i:3*i+3] = force
+            elif proj_dist > max_dist + wall_offset:
+                overshoot = proj_dist - (max_dist + wall_offset)
+                wall_energy += 0.5 * wall_strength * overshoot ** 2
+                force = -wall_strength * overshoot * normal
+                wall_forces[3*i:3*i+3] = force
+    elif mobility_region['type'] in ('lower', 'upper'):
+        axis = mobility_region.get('axis', 'z').lower()
+        threshold = mobility_region.get('threshold', 0.0)
+        axis_map = {'x': 0, 'y': 1, 'z': 2}
+        axis_index = axis_map.get(axis, 2)
+        for i in range(n_atoms):
+            if not mobile_mask[i]:
+                continue
+            coord = positions[i, axis_index]
+            if mobility_region['type'] == 'lower':
+                # For lower: atoms with coord <= threshold are mobile
+                # Apply wall force if coord > threshold + wall_offset
+                if coord > threshold + wall_offset:
+                    overshoot = coord - (threshold + wall_offset)
+                    wall_energy += 0.5 * wall_strength * overshoot ** 2
+                    force_vec = np.zeros(3)
+                    force_vec[axis_index] = -wall_strength * overshoot
+                    wall_forces[3*i:3*i+3] = force_vec
+            else:  # upper
+                # For upper: atoms with coord >= threshold are mobile
+                # Apply wall force if coord < threshold - wall_offset
+                if coord < threshold - wall_offset:
+                    overshoot = (threshold - wall_offset) - coord
+                    wall_energy += 0.5 * wall_strength * overshoot ** 2
+                    force_vec = np.zeros(3)
+                    force_vec[axis_index] = wall_strength * overshoot
+                    wall_forces[3*i:3*i+3] = force_vec
+    return wall_energy, wall_forces
+
+
+class DeepMDCalculatorWithAtomicEnergy(Calculator):
+    """Wrapper for DeepMD calculator to enable per-atom energy calculation.
     
-    Parameters:
-        filename: Output file path
-        atoms: ASE Atoms object, structure to write
-        energy: Structure's energy value (eV)
+    DeepMD's official Python calculator does not expose per-atom energies by default.
+    This wrapper extends the standard DP calculator to retrieve atomic energies.
+    
+    Reference: https://zhuanlan.zhihu.com/p/457374515
+    
+    Usage:
+        calc = DeepMDCalculatorWithAtomicEnergy(model_path='model.pb')
+        atoms.calc = calc
+        atomic_energies = atoms.get_potential_energies()
     """
-    # Store energy information in atoms object's info dictionary
-    atoms.info['energy'] = energy
-    # Use ASE's write function to write XYZ file
-    write(filename, atoms)
+    
+    name = "DP_AtomicEnergy"
+    implemented_properties = ['energy', 'free_energy', 'forces', 'virial', 'stress', 'energies']
+    
+    def __init__(self, model: str, label: str = "DP_AtomicEnergy", type_dict: Optional[dict] = None, **kwargs) -> None:
+        """Initialize DeepMD calculator with atomic energy support.
+        
+        Args:
+            model: Path to the DeepMD model file (.pb)
+            label: Calculator label
+            type_dict: Mapping of element types and their numbers (optional)
+        """
+        from deepmd.infer import DeepPot
+        from pathlib import Path
+        
+        Calculator.__init__(self, label=label, **kwargs)
+        self.dp = DeepPot(str(Path(model).resolve()))
+        
+        if type_dict:
+            self.type_dict = type_dict
+        else:
+            self.type_dict = dict(
+                zip(self.dp.get_type_map(), range(self.dp.get_ntypes()))
+            )
+    
+    def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
+        """Calculate energy, forces, virial, stress, and per-atom energies."""
+        from ase.calculators.calculator import PropertyNotImplementedError
+        
+        if atoms is not None:
+            self.atoms = atoms.copy()
+        
+        # Prepare input
+        coord = self.atoms.get_positions().reshape([1, -1])
+        if sum(self.atoms.get_pbc()) > 0:
+            cell = self.atoms.get_cell().reshape([1, -1])
+        else:
+            cell = None
+        symbols = self.atoms.get_chemical_symbols()
+        atype = [self.type_dict[k] for k in symbols]
+        
+        # Get fparam and aparam from atoms.info if available
+        fparam = self.atoms.info.get('fparam', None)
+        aparam = self.atoms.info.get('aparam', None)
+        
+        # Call DeepPot model to get all properties including atomic energies
+        # DeepPot.eval returns: (energy, forces, virial, atomic_energy, atomic_virial)
+        e, f, v, atomic_e, _ = self.dp.eval(
+            coords=coord, 
+            cells=cell, 
+            atom_types=atype, 
+            fparam=fparam, 
+            aparam=aparam
+        )
+        
+        # Store standard properties
+        self.results['energy'] = e[0][0]
+        self.results['free_energy'] = e[0][0]
+        self.results['forces'] = f[0]
+        self.results['virial'] = v[0].reshape(3, 3)
+        
+        # Store per-atom energies
+        self.results['energies'] = atomic_e[0]
+        
+        # Convert virial into stress for lattice relaxation
+        if cell is not None:
+            # Stress = -virial / volume (tensile stress is positive)
+            stress = -0.5 * (v[0].copy() + v[0].copy().T) / self.atoms.get_volume()
+            # Voigt notation
+            self.results['stress'] = stress.flat[[0, 4, 8, 5, 2, 1]]
+        elif 'stress' in properties:
+            raise PropertyNotImplementedError
+    
+    def get_potential_energies(self, atoms=None):
+        """Return per-atom energies."""
+        if atoms is not None:
+            self.calculate(atoms)
+        return self.results.get('energies', np.zeros(len(self.atoms)))
+

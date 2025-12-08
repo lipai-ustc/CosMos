@@ -1,15 +1,7 @@
 cosmos 0.1.0 (Linux 6.6.87.2-microsoft-standard-WSL2)
-executed on             Linux date 2025.12.06  21:36:04
+executed on             Linux date 2025.12.08  14:28:21
 running on    16 total cores
 Python 3.9.13, ASE 3.26.0, dscribe 2.1.2
 
 Initial structure: Energy = -153.044397 eV
-Step 1: Energy = -154.549701 eV
-Step 2: Energy = -154.672210 eV
-Step 3: Energy = -155.376038 eV
-Step 4: Energy = -155.517911 eV
-Step 5: Energy = -155.518770 eV
-Step 6: Energy = -155.524097 eV
-Step 7: Energy = -155.527824 eV
-Step 8: Energy = -155.528119 eV
-Step 9: Energy = -155.532005 eV
+Step 1: Energy = -153.280840 eV
