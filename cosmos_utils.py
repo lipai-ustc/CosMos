@@ -80,13 +80,30 @@ def load_potential(potential_config):
     
     Parameters:
         potential_config: Dictionary containing potential configuration with keys:
-            - 'type': Potential type ('eam', 'chgnet', 'deepmd', 'lammps', 'python')
+            - 'type': Potential type ('eam', 'chgnet', 'deepmd', 'lammps', 'python', 'nequip')
             - 'model': Model file path or name (unified parameter for all types)
             - For 'python' type: loads calculator from calculator.py in working directory
+            - If empty/None: defaults to NequIP using NEQUIP_MODEL environment variable
     
     Returns:
         ASE Calculator object
     """
+    # Default to NequIP if no potential config provided
+    if not potential_config or 'type' not in potential_config:
+        import os
+        nequip_model = os.environ.get('NEQUIP_MODEL')
+        if not nequip_model:
+            raise ValueError(
+                "No potential configuration provided and NEQUIP_MODEL environment variable not set.\n"
+                "Either specify 'potential' in input.json or set NEQUIP_MODEL environment variable."
+            )
+        print(f"No potential specified, using default NequIP calculator from NEQUIP_MODEL: {nequip_model}")
+        potential_config = {
+            'type': 'nequip',
+            'model': nequip_model,
+            'device': 'cpu'
+        }
+    
     pot_type = potential_config['type'].lower()
     
     if pot_type == 'python':

@@ -53,10 +53,14 @@ def main() -> None:
     atoms = load_initial_structure(structure_path)
     
     # Load calculator directly from load_potential
+    # If no potential config provided, defaults to NequIP from NEQUIP_MODEL env var
     potential_config = config.get('potential', {})
     calculator = load_potential(potential_config)
     if calculator is None:
         raise ValueError("Failed to initialize calculator. Check your potential configuration.")
+    
+    # Get potential type for CoSMoS (handle default NequIP case)
+    potential_type = potential_config.get('type', 'nequip').lower() if potential_config else 'nequip'
     
     # Get output configuration with defaults
     output_config = config.get('output', {})
@@ -192,7 +196,7 @@ def main() -> None:
         random_direction_mode=rd_mode,
         mobility_control=mobility_control_param,
         # Potential type for calculator selection
-        potential_type=potential_config.get('type', '').lower(),
+        potential_type=potential_type,
         # NequIP config for atomic energy fallback
         nequip_config=nequip_fallback_config
     )
