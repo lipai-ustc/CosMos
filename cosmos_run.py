@@ -8,16 +8,18 @@ Usage: cosmos [or] python cosmos_run.py
 """
 import os
 import sys
+import json
 import numpy as np
+from ase.io import read
 from cosmos_search import CoSMoSSearch
-from cosmos_utils import load_initial_structure, load_config, load_potential, get_version_info
-
+from cosmos_utils import load_potential, get_version_info, \
+                         get_mobility_atoms, infer_geometry_type
 
 class TeeLogger:
     """Redirect print output to both console and log file"""
-    def __init__(self, log_file):
+    def __init__(self, log_file, mode='w'):
         self.terminal = sys.stdout
-        self.log = open(log_file, 'a')
+        self.log = open(log_file, mode)
     
     def write(self, message):
         self.terminal.write(message)
@@ -31,204 +33,217 @@ class TeeLogger:
     def close(self):
         self.log.close()
 
-
 def main() -> None:
+    # Record start time
+    import time
+    start_time = time.time()
+    
     # Get current working directory where input files should be
     cwd = os.getcwd()
     
-    # Load configuration file
+    # 0. Load configuration file
     config_path = os.path.join(cwd, 'input.json')
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n"
-            f"Please create an input.json file in the current directory. See examples/ for templates."
-        )
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in configuration file: {e}")
+
+    # 1. Get task type (required)
+    sys_config = config.get('system')
+    if not sys_config:
+        raise ValueError("Configuration missing 'system' section")
+    name = sys_config.get('name')
+    task = sys_config.get('task')
+
+    # 2. Read structure file (optional)
+    structure_path = config.get('system', {}).get('structure', 'init.xyz')
+    if not os.path.isabs(structure_path):
+        structure_path = os.path.join(cwd, structure_path)
+    try:
+        atoms = read(structure_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Structure file not found: {structure_path}")
+    except Exception as e:
+        raise ValueError(f"Error reading structure file: {e}")
     
-    # Load configuration
-    config = load_config(config_path)
+    geometry_type, vacuum_axes = infer_geometry_type(atoms) # Detect geometry type and prepare structure for search
+    structure_info = {'atoms': atoms, 'geometry_type': geometry_type, 'vacuum_axes': vacuum_axes}
     
-    # System banner (similar to VASP OUTCAR header)
-    _, _, _, _, header = get_version_info()
-    print(header)
-    
-    # Validate required configuration sections
-    if 'potential' not in config:
+    # 3. Load potential calculator (required)
+    potential_config = config.get('potential')
+    potential_type = potential_config.get('type')
+    if not potential_config or not potential_type:
         raise ValueError("Configuration missing 'potential' section")
-    if 'monte_carlo' not in config:
-        raise ValueError("Configuration missing 'monte_carlo' section")
-    if 'climbing' not in config:
-        raise ValueError("Configuration missing 'climbing' section")
-    
-    # Get structure file path from configuration
-    structure_path = config.get('structure_path', os.path.join(cwd, 'init.xyz'))
-    
-    # Validate input files exist
-    if not os.path.exists(structure_path):
-        raise FileNotFoundError(
-            f"Structure file not found: {structure_path}\n"
-            f"Please provide an init.xyz file or specify 'structure_path' in input.json"
-        )
-    
-    # Load structure
-    atoms = load_initial_structure(structure_path)
-    
-    # Load calculator directly from load_potential
-    # If no potential config provided, defaults to NequIP from NEQUIP_MODEL env var
-    potential_config = config.get('potential', {})
     calculator = load_potential(potential_config)
-    if calculator is None:
-        raise ValueError("Failed to initialize calculator. Check your potential configuration.")
+
+    # 4. Get Monte Carlo configuration (required)
+    mc_config = config.get('monte_carlo')
+    mc_steps = mc_config.get('steps')
+    temperature = mc_config.get('temperature')
+    if not mc_config or not mc_steps or not temperature:
+        raise ValueError("Configuration missing 'monte_carlo' section")
+    monte_carlo={'steps': mc_steps, 'temperature': temperature}
     
-    # Get potential type for CoSMoS (handle default NequIP case)
-    potential_type = potential_config.get('type', 'nequip').lower() if potential_config else 'nequip'
-    
-    # Get output configuration with defaults
-    output_config = config.get('output', {})
-    output_dir = output_config.get('directory', 'cosmos_output')
-    debug_mode = output_config.get('debug', False)
-    
-    # Write header to log file and setup logging
-    os.makedirs(output_dir, exist_ok=True)
-    log_path = os.path.join(output_dir, 'cosmos_log.txt')
-    with open(log_path, 'w') as f:
-        f.write(header)
-        f.write('\n\n')
-    
-    # Redirect stdout to both console and log file
-    sys.stdout = TeeLogger(log_path)
-    
-    # Get Monte Carlo configuration
-    mc_config = config['monte_carlo']
-    mc_steps = mc_config.get('steps', 100)
-    temperature = mc_config.get('temperature', 500)
-    
-    # Get Climbing configuration
-    climb_config = config['climbing']
-    gaussian_height = climb_config.get('gaussian_height', 0.1)  # w parameter
-    gaussian_width = climb_config.get('gaussian_width', 0.2)    # ds parameter
-    max_gaussians = climb_config.get('max_gaussians', 20)       # H parameter
-    
-    optimizer_config = climb_config.get('optimizer', {})
+    # 5. Get random direction mode and parameters  (optional)
+    rd_config = config.get('random_direction', {})
+    rd_mode = rd_config.get('mode', 'base_plus_nl') # Default method according to the original SSW algorithm
+    valid_modes = {'base',            # Temperature-based default scale (Boltzmann distribution)
+                   'atomic',          # 'base' * atomic_energy_scale
+                   'base_plus_nl',    # 'base' + Nl
+                   'atomic_plus_nl',  # 'base' * atomic_energy_scale + Nl
+                   'python'           # User-defined Python function ()
+                   }
+    if rd_mode not in valid_modes:
+        raise ValueError(f"Invalid random direction mode: '{rd_mode}'. Must be one of {valid_modes}.")
+    element_weights = rd_config.get('element_weights', {}) # additional weight based on element type
+    atomic_calculator = rd_config.get('atomic_calculator', {})  # Default to use Nequip
+    random_direction={'mode': rd_mode, 'element_weights': element_weights, 'atomic_calculator': atomic_calculator}
+
+    # 6. Get Climbing configuration (optional)
+    climb_config = config.get('climbing',{})
+    gaussian_height = climb_config.get('gaussian_height', 0.2)    # w parameter
+    gaussian_width  = climb_config.get('gaussian_width', 0.2)     # ds parameter
+    max_gaussians   = climb_config.get('max_gaussians', 20)       # H parameter
+    climbing={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
+
+    # 7. Get Optimizer configuration (optional)
+    optimizer_config = config.get('optimizer',{})
     max_steps = optimizer_config.get('max_steps', 500)
     fmax = optimizer_config.get('fmax', 0.05)
-    
-    # Random direction mode configuration
-    rd_mode = climb_config.get('random_direction_mode', 'atomic_plus_nl')
-    valid_modes = {'base', 'atomic', 'base_plus_nl', 'atomic_plus_nl', 'python'}
-    valid_ints = {1: 'base', 2: 'atomic', 3: 'base_plus_nl', 4: 'atomic_plus_nl'}
-    
-    if isinstance(rd_mode, int):
-        if rd_mode not in valid_ints:
-            raise ValueError(
-                f"Invalid random_direction_mode: {rd_mode}. "
-                f"Must be one of {list(valid_ints.keys())} or {valid_modes}"
-            )
-        rd_mode = valid_ints[rd_mode]
-    else:
-        rd_mode = str(rd_mode).strip().lower()
-        if rd_mode not in valid_modes:
-            raise ValueError(
-                f"Invalid random_direction_mode: '{rd_mode}'. "
-                f"Must be one of {valid_modes} or {list(valid_ints.keys())}"
-            )
-    
-    # Get Mobility Control configuration and normalize to internal format
-    raw_mc = config.get('mobility_control', None)
-    mobility_control_param = None
-    if isinstance(raw_mc, dict):
-        mode = raw_mc.get('mode', 'all')
-        if mode == 'all':
-            mobility_control_param = None
-        elif mode == 'indices_free':
-            idx = np.array(raw_mc.get('indices_free', []), dtype=int)
-            mobility_control_param = {
-                'mobile_atoms': idx.tolist(),
-                'mobility_region': None,
-                'wall_strength': raw_mc.get('wall_strength', 0.0),
-                'wall_offset': raw_mc.get('wall_offset', 2.0),
+    optimizer={'max_steps': max_steps, 'fmax': fmax}
+
+    # 8. Get Mobility Control configuration and normalize to internal format (optional)
+    raw_mc = config.get('mobility_control', {})
+    mobility_mode   = raw_mc.get('mode', 'all')
+    mobility_region = None
+    wall_strength   = raw_mc.get('wall_strength', 10.0)
+    wall_offset     = raw_mc.get('wall_offset', 2.0)
+
+    if mobility_mode == 'all':
+        mobile_atoms = np.arange(len(atoms), dtype=int).tolist()
+
+    elif mobility_mode == 'indices_free':
+        mobile_atoms = np.array(raw_mc.get('indices_free', []), dtype=int).tolist()
+
+    elif mobility_mode == 'indices_fix':
+        fixed = np.array(raw_mc.get('indices_fix', []), dtype=int)
+        all_idx = np.arange(len(atoms), dtype=int)
+        mobile_atoms = np.setdiff1d(all_idx, fixed, assume_unique=False).tolist()
+
+    elif mobility_mode == 'region':
+        region_type = raw_mc.get('region_type')
+        if not region_type:
+            raise ValueError("mobility_control mode 'region' requires 'region_type' to be specified")
+        if region_type == 'sphere':
+            center = raw_mc.get('center')
+            radius = raw_mc.get('radius')
+            if center is None or radius is None:
+                raise ValueError("region_type 'sphere' requires 'center' and 'radius' to be specified")
+            mobility_region = {
+                'type': 'sphere',
+                'center': np.array(center).tolist(),
+                'radius': radius,
             }
-        elif mode == 'indices_fix':
-            fixed = np.array(raw_mc.get('indices_fix', []), dtype=int)
-            all_idx = np.arange(len(atoms), dtype=int)
-            mobile = np.setdiff1d(all_idx, fixed, assume_unique=False)
-            mobility_control_param = {
-                'mobile_atoms': mobile.tolist(),
-                'mobility_region': None,
-                'wall_strength': raw_mc.get('wall_strength', 0.0),
-                'wall_offset': raw_mc.get('wall_offset', 2.0),
+        elif region_type == 'slab':
+            origin = raw_mc.get('origin')
+            normal = raw_mc.get('normal')
+            min_dist = raw_mc.get('min_dist')
+            max_dist = raw_mc.get('max_dist')
+            if origin is None or normal is None or min_dist is None or max_dist is None:
+                raise ValueError("region_type 'slab' requires 'origin', 'normal', 'min_dist', and 'max_dist' to be specified")
+            mobility_region = {
+                'type': 'slab',
+                'origin': np.array(origin).tolist(),
+                'normal': np.array(normal).tolist(),
+                'min_dist': min_dist,
+                'max_dist': max_dist,
             }
-        elif mode == 'region':
-            region_type = raw_mc.get('region_type', 'sphere')
-            if region_type == 'sphere':
-                mobility_control_param = {
-                    'mobile_atoms': None,
-                    'mobility_region': {
-                        'type': 'sphere',
-                        'center': np.array(raw_mc.get('center', [0, 0, 0])).tolist(),
-                        'radius': raw_mc.get('radius', 10.0),
-                    },
-                    'wall_strength': raw_mc.get('wall_strength', 0.0),
-                    'wall_offset': raw_mc.get('wall_offset', 2.0),
-                }
-            elif region_type == 'slab':
-                mobility_control_param = {
-                    'mobile_atoms': None,
-                    'mobility_region': {
-                        'type': 'slab',
-                        'origin': np.array(raw_mc.get('origin', [0, 0, 0])).tolist(),
-                        'normal': np.array(raw_mc.get('normal', [0, 0, 1])).tolist(),
-                        'min_dist': raw_mc.get('min_dist', -5.0),
-                        'max_dist': raw_mc.get('max_dist', 5.0),
-                    },
-                    'wall_strength': raw_mc.get('wall_strength', 0.0),
-                    'wall_offset': raw_mc.get('wall_offset', 2.0),
-                }
-            elif region_type in ('lower', 'upper'):
-                mobility_control_param = {
-                    'mobile_atoms': None,
-                    'mobility_region': {
-                        'type': region_type,
-                        'axis': raw_mc.get('axis', 'z'),
-                        'threshold': raw_mc.get('threshold', 0.0),
-                    },
-                    'wall_strength': raw_mc.get('wall_strength', 0.0),
-                    'wall_offset': raw_mc.get('wall_offset', 2.0),
-                }
-            else:
-                raise ValueError(f"Unknown region_type: {region_type}")
+        elif region_type in ('lower', 'upper'):
+            axis = raw_mc.get('axis')
+            threshold = raw_mc.get('threshold')
+            if axis is None or threshold is None:
+                raise ValueError(f"region_type '{region_type}' requires 'axis' and 'threshold' to be specified")
+            mobility_region = {
+                'type': region_type,
+                'axis': axis,
+                'threshold': threshold,
+            }
         else:
-            raise ValueError(f"Unknown mobility_control mode: {mode}")
+            raise ValueError(f"Unknown region_type: {region_type}.\n Valid options are 'sphere', 'slab', 'lower', and 'upper'.")
+        
+        mobile_atoms = get_mobility_atoms(atoms, mobility_region)  # Calculate mobile_atoms from mobility_region
+
+    else:
+        raise ValueError(f"Unknown mobility_control mode: {mobility_mode}")
+        
+    mobility_control = {      # Construct unified mobility_control_param
+        'mobile_atoms': mobile_atoms,
+        'mobility_region': mobility_region,
+        'wall_strength': wall_strength,
+        'wall_offset': wall_offset,    }
     
-    # Prepare NequIP config for atomic energy fallback (if available)
-    nequip_fallback_config = None
-    if 'nequip_fallback' in config:
-        nequip_fallback_config = config['nequip_fallback']
+    # 9. Get output configuration with defaults (optional)
+    output_config = config.get('output', {})
+    output_dir = output_config.get('directory', 'cosmos_output')
+
+    # 10. Get debug mode (optional)
+    debug_mode = config.get('debug', False)    
+
+    # Prepare log file and print all configuration parameters at the top
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, 'cosmos_log.txt')
+    # Redirect stdout to TeeLogger (opens in write mode to clear existing content)
+    sys.stdout = TeeLogger(log_path, mode='w')        
     
+    print(get_version_info())    #header
+    print('============================================================================================')   
+    print('=                                CoSMoS Input Configuration                                =')
+    print('============================================================================================') 
+    print(f'  System name      : {name}')   
+    print(f'  Task type        : {task}')
+    print(f'  Structure file   : {structure_path}')
+    print(f'  Geometry type    : {geometry_type}')
+    print(f'  Potential type   : {potential_type}')
+    print(f'  MC steps         : {mc_steps}')
+    print(f'  Temperature (K)  : {temperature}')
+    print(f'  Gaussian height w: {gaussian_height}')
+    print(f'  Gaussian width ds: {gaussian_width}')
+    print(f'  Max Gaussians H  : {max_gaussians}')
+    print(f'  Optimizer steps  : {max_steps}')
+    print(f'  Optimizer fmax   : {fmax}')
+    print(f'  RD mode          : {rd_mode}')
+    if element_weights:  # Empty dict evaluates to False
+        print(f'  Element weights  : {element_weights}')
+    if mobility_mode != 'all':
+        print(f'  Mobility mode    : {mobility_mode}')
+        print(f'  Mobile atoms     : {mobile_atoms}')       
+        print(f'  Mobility region  : {mobility_region}')         
+        print(f'  Wall strength    : {wall_strength}')
+        print(f'  Wall offset      : {wall_offset}')
+    else:
+        print('  Mobility control : None')
+    print(f'  Output dir       : {output_dir}')
+    print(f'  Debug mode       : {debug_mode}')        
+
+    print('\n\n=====================================    Start of CoSMoS Search    ==================================\n\n') 
+
     cosmos = CoSMoSSearch(
-        initial_atoms=atoms,
+        task=task,
+        structure_info=structure_info,
         calculator=calculator,
+        monte_carlo=monte_carlo,
+        random_direction_mode=random_direction,
+        climbing=climbing,
+        optimizer=optimizer,
+        mobility_control=mobility_control,
         output_dir=output_dir,
-        # Climbing parameters
-        ds=gaussian_width,
-        H=max_gaussians,
-        w=gaussian_height,
-        max_steps=max_steps,
-        fmax=fmax,
-        # Monte Carlo parameters
-        temperature=temperature,
-        # Mobility control parameters (new simplified format)
-        random_direction_mode=rd_mode,
-        mobility_control=mobility_control_param,
-        # Potential type for calculator selection
-        potential_type=potential_type,
-        # NequIP config for atomic energy fallback
-        nequip_config=nequip_fallback_config,
-        # Debug mode
-        debug=debug_mode
+        debug=debug_mode,
     )
     
     # Run CoSMoS global optimization
-    print(f"Starting CoSMoS global search with {mc_steps} steps...")
     cosmos.run(steps=mc_steps)
     
     # Get results and output summary
@@ -243,6 +258,15 @@ def main() -> None:
     print(f"All minima structures in: {os.path.join(output_dir, 'all_minima.xyz')}")
     print(f"Best structure saved to: {os.path.join(output_dir, 'best_str.xyz')}")
 
+    print('\n\n=====================================    Finish of CoSMoS Search    ==================================\n\n')
+
+    # Calculate and print total execution time
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = elapsed_time % 60
+    print(f"\nTotal execution time: {hours:02d}:{minutes:02d}:{seconds:06.3f}")
 
 if __name__ == '__main__':
     main()
