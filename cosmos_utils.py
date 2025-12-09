@@ -1,5 +1,4 @@
 import os
-import json
 import platform
 from typing import Dict, Any, Tuple, List, Optional
 from datetime import datetime
@@ -8,27 +7,9 @@ import numpy as np
 from ase import Atoms
 from ase.io import read
 from ase.calculators.calculator import Calculator, all_changes
-from dscribe.descriptors import SOAP
+from dscribe.descriptors import SOAP 
 
-
-def load_initial_structure(structure_path: str) -> Atoms:
-    """Load initial structure from file"""
-    return read(structure_path)
-
-
-def load_config(config_path: str) -> Dict[str, Any]:
-    """Load configuration from JSON file"""
-    with open(config_path, 'r') as f:
-        return json.load(f)
-
-
-def get_version_info() -> Tuple[str, str, str, str, str]:
-    """
-    Get version information for cosmos and dependencies
-    
-    Returns:
-        Tuple of (cosmos_version, python_version, ase_version, dscribe_version, header_string)
-    """
+def get_version_info():
     # Get cosmos version
     try:
         from importlib.metadata import version as _pkg_version
@@ -59,20 +40,13 @@ def get_version_info() -> Tuple[str, str, str, str, str]:
     now_str = datetime.now().strftime('%Y.%m.%d  %H:%M:%S')
     total_cores = multiprocessing.cpu_count()
     
-    header = f"""cosmos {cosmos_version} ({os_name} {os_release})
+    header=f"""cosmos {cosmos_version} ({os_name} {os_release})
 executed on             {os_name} date {now_str}
 running on    {total_cores} total cores
 Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}"""
-    
-    return cosmos_version, python_ver, ase_ver, dscribe_ver, header
-
-
-def print_version_header() -> str:
-    """Print version header and return the header string"""
-    _, _, _, _, header = get_version_info()
-    print(header)
+   
     return header
-
+    
 
 def load_potential(potential_config):
     """
@@ -88,23 +62,11 @@ def load_potential(potential_config):
     Returns:
         ASE Calculator object
     """
-    # Default to NequIP if no potential config provided
-    if not potential_config or 'type' not in potential_config:
-        import os
-        nequip_model = os.environ.get('NEQUIP_MODEL')
-        if not nequip_model:
-            raise ValueError(
-                "No potential configuration provided and NEQUIP_MODEL environment variable not set.\n"
-                "Either specify 'potential' in input.json or set NEQUIP_MODEL environment variable."
-            )
-        print(f"No potential specified, using default NequIP calculator from NEQUIP_MODEL: {nequip_model}")
-        potential_config = {
-            'type': 'nequip',
-            'model': nequip_model,
-            'device': 'cpu'
-        }
     
-    pot_type = potential_config['type'].lower()
+    try:
+        pot_type = potential_config['type'].lower()
+    except KeyError:
+        raise ValueError("Potential configuration missing 'type' key")
     
     if pot_type == 'python':
         # Load custom calculator from calculator.py in current working directory
@@ -168,10 +130,8 @@ def load_potential(potential_config):
         model_path = potential_config.get('model', 'EquiformerV2-31M-S2EF-OC20-All+MD')
         device = potential_config.get('device', 'cpu')
         task_name = potential_config.get('task_name', 'oc20')
-        
         # Load pretrained model
         predictor = pretrained_mlip.load_predict_unit(model_path, device=device)
-        
         # Create FAIRChem calculator
         return FAIRChemCalculator(predictor, task_name=task_name)
     elif pot_type == 'nequip':
@@ -221,34 +181,56 @@ def load_potential(potential_config):
         
         return Vasp(**vasp_params)
 
-
 # Structure analysis and I/O utilities
 
+def compute_sorted_structure_descriptor(atoms: Atoms, species: List[str], mobile_atoms: Optional[List[int]] = None, rcut: float = 4.0, nmax: int = 5, lmax: int = 5) -> np.ndarray:
+    """Permutation-invariant structure descriptor with element-wise grouping.
 
-
-def compute_soap_per_atom(atoms: Atoms, species: List[str], rcut: float = 6.0, nmax: int = 8, lmax: int = 6) -> np.ndarray:
-    """Return per-atom SOAP descriptors (N_atoms x dim)."""
+    - Mobile atoms (indices in `mobile_atoms`) are included; all others are ignored.
+    - For each chemical element in `species` order, collect SOAP rows of that element,
+      sort them by L2 norm, then flatten and concatenate across elements.
+    """
+    # Build SOAP descriptor for all atoms
+    from dscribe.descriptors import SOAP
     soap = SOAP(species=species, periodic=True, r_cut=rcut, n_max=nmax, l_max=lmax)
-    return soap.create(atoms)
+    per_atom = soap.create(atoms)
 
+    symbols = np.array(atoms.get_chemical_symbols())
 
-def compute_sorted_structure_descriptor(atoms: Atoms, species: List[str], rcut: float = 6.0, nmax: int = 8, lmax: int = 6) -> np.ndarray:
-    """Permutation-invariant structure descriptor by sorting per-atom SOAP rows by L2 norm and flattening."""
-    per_atom = compute_soap_per_atom(atoms, species, rcut=rcut, nmax=nmax, lmax=lmax)
-    norms = np.linalg.norm(per_atom, axis=1)
-    order = np.argsort(norms)
-    sorted_rows = per_atom[order]
-    return sorted_rows.flatten()
+    # Determine mobile mask from mobile_atoms
+    n_atoms = len(atoms)
+    if mobile_atoms is not None:
+        mobile_mask = np.zeros(n_atoms, dtype=bool)
+        mobile_mask[np.array(mobile_atoms, dtype=int)] = True
+    else:
+        mobile_mask = np.ones(n_atoms, dtype=bool)
 
+    # Build descriptor grouped by element type in the order of `species`
+    blocks = []
+    for elem in species:
+        elem_mask = (symbols == elem) & mobile_mask
+        if not np.any(elem_mask):
+            continue
+        elem_desc = per_atom[elem_mask]
+        norms = np.linalg.norm(elem_desc, axis=1)
+        order = np.argsort(norms)
+        sorted_rows = elem_desc[order]
+        blocks.append(sorted_rows.flatten())
 
+    if not blocks:
+        # No mobile atoms; return empty descriptor
+        return np.array([])
+
+    return np.concatenate(blocks)
 
 def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
                                     pool: List[Atoms],
                                     species: List[str],
-                                    tol: float = 0.01,
+                                    tol: float = 0.1,
                                     energy: Optional[float] = None,
                                     pool_energies: Optional[List[float]] = None,
-                                    energy_tol: float = 1) -> bool:
+                                    energy_tol: float = 1,
+                                    mobile_atoms: Optional[List[int]] = None) -> bool:
     """
     Duplicate check combining permutation-invariant descriptor and energy gating.
     - Find closest structure in pool by descriptor distance.
@@ -256,11 +238,12 @@ def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
     """
     if not pool:
         return False
-    desc_new = compute_sorted_structure_descriptor(new_atoms, species)
+    desc_new = compute_sorted_structure_descriptor(new_atoms, species, mobile_atoms=mobile_atoms)
     best_idx = -1
     best_dist = float('inf')
     for i, atoms in enumerate(pool):
-        desc_old = compute_sorted_structure_descriptor(atoms, species)
+        # Same mobile_atoms set applies to all structures in this run
+        desc_old = compute_sorted_structure_descriptor(atoms, species, mobile_atoms=mobile_atoms)
         d = np.linalg.norm(desc_new - desc_old)
         if d < best_dist:
             best_dist = d
@@ -302,49 +285,44 @@ def infer_geometry_type(atoms: Atoms, vacuum_threshold_angstrom: float = 3.0):
     return geom, axes
 
 
-def get_mobility_mask(atoms: Atoms, mobile_atoms, mobility_region) -> np.ndarray:
+def get_mobility_atoms(atoms: Atoms, mobility_region) -> np.ndarray:
     """
     Compute boolean mask for mobile atoms.
     True = mobile, False = immobile
     """
     n_atoms = len(atoms)
-    if mobile_atoms is None and mobility_region is None:
+    if mobility_region is None:
         return np.ones(n_atoms, dtype=bool)
-    if mobile_atoms is not None:
-        mask = np.zeros(n_atoms, dtype=bool)
-        mask[np.array(mobile_atoms, dtype=int)] = True
-        return mask
-    if mobility_region is not None:
-        positions = atoms.get_positions()
-        mask = np.zeros(n_atoms, dtype=bool)
-        if mobility_region['type'] == 'sphere':
-            center = np.array(mobility_region.get('center', [0, 0, 0]))
-            radius = mobility_region.get('radius', 0.0)
-            distances = np.linalg.norm(positions - center, axis=1)
-            mask = distances <= radius
-        elif mobility_region['type'] == 'slab':
-            normal = np.array(mobility_region.get('normal', [0, 0, 1]))
-            normal = normal / (np.linalg.norm(normal) or 1.0)
-            origin = np.array(mobility_region.get('origin', [0, 0, 0]))
-            min_dist = mobility_region.get('min_dist', -5.0)
-            max_dist = mobility_region.get('max_dist', 5.0)
-            vectors = positions - origin
-            distances = np.dot(vectors, normal)
-            mask = (distances >= min_dist) & (distances <= max_dist)
-        elif mobility_region['type'] in ('lower', 'upper'):
-            axis = mobility_region.get('axis', 'z').lower()
-            threshold = mobility_region.get('threshold', 0.0)
-            axis_map = {'x': 0, 'y': 1, 'z': 2}
-            if axis not in axis_map:
-                raise ValueError(f"Invalid axis '{axis}'. Must be 'x', 'y', or 'z'.")
-            axis_index = axis_map[axis]
-            coords = positions[:, axis_index]
-            if mobility_region['type'] == 'lower':
-                mask = coords <= threshold
-            else:  # upper
-                mask = coords >= threshold
-        return mask
-    return np.ones(n_atoms, dtype=bool)
+
+    positions = atoms.get_positions()
+    mask = np.zeros(n_atoms, dtype=bool)
+    if mobility_region['type'] == 'sphere':
+        center = np.array(mobility_region['center'])
+        radius = mobility_region['radius']
+        distances = np.linalg.norm(positions - center, axis=1)
+        mask = distances <= radius
+    elif mobility_region['type'] == 'slab':
+        normal = np.array(mobility_region['normal'])
+        normal = normal / (np.linalg.norm(normal) or 1.0)
+        origin = np.array(mobility_region['origin'])
+        min_dist = mobility_region['min_dist']
+        max_dist = mobility_region['max_dist']
+        vectors = positions - origin
+        distances = np.dot(vectors, normal)
+        mask = (distances >= min_dist) & (distances <= max_dist)
+    elif mobility_region['type'] in ('lower', 'upper'):
+        axis = mobility_region['axis'].lower()
+        threshold = mobility_region['threshold']
+        axis_map = {'x': 0, 'y': 1, 'z': 2}
+        if axis not in axis_map:
+            raise ValueError(f"Invalid axis '{axis}'. Must be 'x', 'y', or 'z'.")
+        axis_index = axis_map[axis]
+        coords = positions[:, axis_index]
+        if mobility_region['type'] == 'lower':
+            mask = coords <= threshold
+        elif mobility_region['type'] == 'upper':
+            mask = coords >= threshold
+    return np.where(mask)[0].tolist()
 
 
 def calculate_wall_potential(atoms: Atoms, mobility_region, wall_strength: float, wall_offset: float):

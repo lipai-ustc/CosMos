@@ -6,7 +6,7 @@ import numpy as np
 from ase import Atoms
 from ase.constraints import FixAtoms
 from ase.calculators.calculator import Calculator, all_changes
-from cosmos_utils import is_duplicate_by_desc_and_energy, infer_geometry_type, get_mobility_mask, calculate_wall_potential
+from cosmos_utils import is_duplicate_by_desc_and_energy, calculate_wall_potential
 
 class BiasedCalculator(Calculator):
     """
@@ -73,80 +73,70 @@ class BiasedCalculator(Calculator):
 class CoSMoSSearch:
     def __init__(
         self,
-        initial_atoms: Atoms,
-        calculator,
-        soap_species=None,
-        ds=0.2,              # Step size (Å) also Gaussian potential width
-        duplicate_tol=0.01,
-        fmax=0.05,
-        max_steps=500,
-        output_dir="cosmos_output",
-        H=20,                # Number of Gaussian potentials
-        w=0.2,               # Gaussian potential height (eV)
-        temperature=500,     # Temperature (K) for Metropolis criterion
-        # New parameters to align with cosmos_run.py
-        radius=5.0,          # Core region radius
-        decay=0.99,          # Decay coefficient
-        wall_strength=0.0,   # Wall potential strength (eV/Å²)
-        wall_offset=2.0,     # Wall potential distance offset (Å)
-        # Mobility control parameters - simplified design
-        random_direction_mode="atomic_plus_nl",
-        mobility_control=None,            # Mobility control configuration dict or None
-        potential_type=None,              # Potential type ('deepmd', 'eam', etc.)
-        nequip_config=None,               # NequIP configuration for fallback atomic energy
-        debug=False,                      # Debug mode for detailed logging
-        **kwargs                      # Additional parameters
+        task,                # Task type (e.g., 'global_search','structure_sampling')
+        structure_info,      # Dict with 'atoms', 'geometry_type', 'vacuum_axes'
+        calculator,          # ASE calculator object
+        monte_carlo,         # Dict with 'steps', 'temperature'
+        random_direction,    # Dict with 'mode', 'element_weights', 'atomic_calculator'
+        climbing,            # Dict with 'gaussian_height', 'gaussian_width', 'max_gaussians'
+        optimizer,           # Dict with 'max_steps', 'fmax'
+        mobility_control,    # Dict with 'mobile_atoms', 'mobility_region', 'wall_strength', 'wall_offset'
+        output_dir,          # Output directory
+        debug,         # Debug mode for detailed logging
+        **kwargs             # Additional parameters
     ):
-        # Initialize minimum pool
-        self.pool = []  # Stores found minimum energy structures
-        self.atoms = initial_atoms.copy()
-        self.base_calc = calculator  # Calculator for real potential energy
-        self.potential_type = potential_type  # Store potential type for calculator selection
-        self.nequip_config = nequip_config  # Store NequIP config for atomic energy fallback
-        self.debug = debug  # Debug mode flag
-        self.soap_species = soap_species or list(set(initial_atoms.get_chemical_symbols()))
-        self.ds = ds  # Step size parameter controlling structure movement distance
-        self.duplicate_tol = duplicate_tol  # Structure similarity threshold
-        self.fmax = fmax  # Optimization convergence criterion, max force threshold (eV/Å)
-        self.max_steps = max_steps  # Maximum algorithm iterations
-        self.output_dir = output_dir  # Output directory
-        self.H = H  # Maximum number of Gaussian potentials
-        self.w = w  # Gaussian potential height
-        self.temperature = temperature  # Temperature parameter for Metropolis criterion
+        self.task = task     # Task type (e.g., 'global_search','structure_sampling')
+        # Extract structure info
+        self.atoms = structure_info['atoms'].copy()
+        self.geometry_type = structure_info['geometry_type']
+        self.vacuum_axes = structure_info['vacuum_axes']
+        
+        # Calculator
+        self.base_calc = calculator
+        
+        # Monte Carlo parameters
+        self.temperature = monte_carlo['temperature']
         self.k_boltzmann = 8.617333262e-5  # Boltzmann constant (eV/K)
-        self.random_direction_mode = random_direction_mode.strip().lower()
         
-        # New parameter assignments
-        self.radius = radius  # Core region radius
-        self.decay = decay  # Decay coefficient
+        # Random direction parameters
+        self.random_direction_mode = random_direction['mode'].strip().lower()
+        self.element_weights = random_direction.get('element_weights', {})
+        self.atomic_calculator = random_direction.get('atomic_calculator', {})
         
-        # Mobility control is fully normalized in cosmos_run.py; do not parse input.json here
-        self.mobile_atoms = None
-        self.mobility_region = None
-        # Default wall settings
-        self.wall_strength = wall_strength
-        self.wall_offset = wall_offset
-        if isinstance(mobility_control, dict):
-            self.mobile_atoms = mobility_control['mobile_atoms']
-            self.mobility_region = mobility_control['mobility_region']
-            self.wall_strength = mobility_control['wall_strength']
-            self.wall_offset = mobility_control['wall_offset']
-        elif mobility_control is not None:
-            raise ValueError(f"Invalid mobility_control type: {type(mobility_control)}")
+        # Climbing parameters
+        self.ds = climbing['gaussian_width']   # Step size (also Gaussian width)
+        self.w = climbing['gaussian_height']   # Gaussian potential height
+        self.H = climbing['max_gaussians']     # Max number of Gaussians
+        
+        # Optimizer parameters
+        self.fmax = optimizer['fmax']
+        self.max_steps = optimizer['max_steps']
+        
+        # Mobility control
+        self.mobile_atoms = mobility_control['mobile_atoms']
+        self.mobility_region = mobility_control['mobility_region']
+        self.wall_strength = mobility_control['wall_strength']
+        self.wall_offset = mobility_control['wall_offset']
+        
+        # Output and debug
+        self.output_dir = output_dir
+        self.debug = debug
         
         # Handle additional parameters
         self.additional_params = kwargs
         
+        # Initialize minimum pool
         os.makedirs(output_dir, exist_ok=True)
         self.pool = []  # Stores all found minimum energy structures
         self.real_energies = []  # Stores corresponding structure energies
         
         # Compute mobility mask once at initialization
-        # mobility_region is in fractional coordinates and does not change during SSW
-        if (self.mobile_atoms is not None) or (self.mobility_region is not None):
-            self.mobile_mask = get_mobility_mask(self.atoms, self.mobile_atoms, self.mobility_region)
+        # mobile_atoms is now always provided as a list from cosmos_run (never None)
+        if self.mobile_atoms is not None:
+            self.mobile_mask = np.zeros(len(self.atoms), dtype=bool)
+            self.mobile_mask[self.mobile_atoms] = True
             # Cache number of mobile atoms
-            self.n_mobile = int(np.sum(self.mobile_mask))
+            self.n_mobile = len(self.mobile_atoms)
             # Apply FixAtoms constraint to immobile atoms
             # This ensures local minimization respects mobility constraints
             fixed_indices = [i for i in range(len(self.atoms)) if not self.mobile_mask[i]]
@@ -162,33 +152,7 @@ class CoSMoSSearch:
         # Initial structure optimization (real potential)
         self.atoms.calc = self.base_calc
         self._local_minimize(self.atoms)
-        
-        # Detect geometry type using occupancy ratios (cluster/slab/wire/bulk)
-        self.geometry_type, self.vacuum_axes = infer_geometry_type(self.atoms)
-        self.is_cluster = (self.geometry_type == 'cluster')
-        # Axes with significant vacuum margins (set in _infer_geometry_type)
-        # Compute box center in Cartesian
-        cell = self.atoms.get_cell()
-        box_center = (cell[0] + cell[1] + cell[2]) / 2.0
-        # Determine initial center and optionally pre-center along vacuum axes
-        pos0 = self.atoms.get_positions()
-        curr_center = pos0.mean(axis=0)
-        self.initial_cluster_center = None
-        if len(self.vacuum_axes) > 0:
-            # Shift only along vacuum axes so center moves to box_center
-            shift = box_center - curr_center
-            for i in range(3):
-                if i not in self.vacuum_axes:
-                    shift[i] = 0.0
-            self.atoms.set_positions(pos0 + shift)
-            # Use box center as the reference center for subsequent recentering
-            self.initial_cluster_center = box_center
-        axis_labels = ['x', 'y', 'z']
-        dims = [axis_labels[i] for i in self.vacuum_axes]
-        print(f"Detected geometry: {self.geometry_type}. Cluster: {self.is_cluster}. Vacuum axes: {self.vacuum_axes} ({', '.join(dims) if dims else 'none'})")
-        if self.initial_cluster_center is not None:
-            print(f"Initial center set to box center on axes {', '.join(dims)}: {self.initial_cluster_center}")
-            print("Recentering will be applied after accepted moves along the vacuum axes.")
+        self._translate_to_center(climb_atoms)
         
         self._add_to_pool(self.atoms)
 
@@ -422,21 +386,30 @@ class CoSMoSSearch:
         # Generate global soft movement direction Ns according to mode
         Ns = np.zeros(3 * n_atoms)
         mass = 1.0  # Atomic mass unit
+        
+        # Temperature-based default scale
         base_scale = np.sqrt(self.k_boltzmann * self.temperature)
+        
         mode = getattr(self, 'random_direction_mode', 'atomic_plus_nl')
         use_atomic = ('atomic' in mode)
         include_nl = ('plus_nl' in mode)
+        
+        # Get element symbols
+        symbols = atoms.get_chemical_symbols()
         
         # Get energy scales ONCE before loop (if needed)
         if use_atomic:
             energy_scales = self._get_energy_based_scales(atoms)
         
         for i in range(n_atoms):
+            # Get element weight (default 1.0)
+            element = symbols[i]
+            element_weight = self.element_weights.get(element, 1.0)
+            
             if use_atomic:
-                # Atoms with higher energy (less stable) will have larger scales
-                atom_scale = base_scale * energy_scales[i]
+                atom_scale = base_scale * energy_scales[i] * element_weight
             else:
-                atom_scale = base_scale
+                atom_scale = base_scale * element_weight
             Ns[3*i:3*i+3] = np.random.normal(0, atom_scale, 3)
         
         # Apply mobility mask: set Ns to zero for immobile atoms BEFORE normalization
@@ -631,22 +604,6 @@ class CoSMoSSearch:
         temp_atoms.calc = self.base_calc
         return temp_atoms.get_potential_energy()
     
-    def _translate_to_initial_center(self, atoms):
-        """
-        Translate structure so its geometric center returns to the initial center
-        along axes that have significant vacuum margins (self.vacuum_axes).
-        """
-        if getattr(self, 'initial_cluster_center', None) is not None and len(self.vacuum_axes) > 0:
-            pos = atoms.get_positions()
-            curr_center = pos.mean(axis=0)
-            shift = self.initial_cluster_center - curr_center
-            # Zero out components for non-vacuum axes
-            for i in range(3):
-                if i not in self.vacuum_axes:
-                    shift[i] = 0.0
-            atoms.set_positions(pos + shift)
-    
-
     def _write_step_output(self, step, atoms, energy):
         """
         Output step information to file
@@ -778,10 +735,18 @@ class CoSMoSSearch:
             if np.random.rand() < accept_prob:
                 print(f"Accept new structure: ΔE = {delta_E:.6f} eV, P = {accept_prob:.4f}")
                 # Check if new structure is a duplicate
-                if not is_duplicate_by_desc_and_energy(climb_atoms, self.pool, self.soap_species, tol=self.duplicate_tol, energy=relaxed_energy, pool_energies=self.real_energies, energy_tol=1):
+                if not is_duplicate_by_desc_and_energy(
+                    climb_atoms,
+                    self.pool,
+                    self.soap_species if self.soap_species is not None else list(set(climb_atoms.get_chemical_symbols())),
+                    energy=relaxed_energy,
+                    pool_energies=self.real_energies,
+                    energy_tol=1,
+                    mobile_atoms=self.mobile_atoms,
+                ):
                     # New unique structure found
                     # Align cluster center to initial center to prevent global translation
-                    self._translate_to_initial_center(climb_atoms)
+                    self._translate_to_center(climb_atoms)
                     current_atoms = climb_atoms.copy()
                     current_atoms.calc = self.base_calc  # Attach calculator
                     current_energy = relaxed_energy
@@ -799,7 +764,7 @@ class CoSMoSSearch:
                         climb_atoms.set_positions(perturb_positions.reshape(-1, 3))
                         climb_atoms.calc = self.base_calc
                         self._local_minimize(climb_atoms)
-                    self._translate_to_initial_center(climb_atoms)
+                    self._translate_to_center(climb_atoms)
                     current_atoms = climb_atoms.copy()
                     current_atoms.calc = self.base_calc  # Attach calculator
                     current_energy = self._get_real_energy(current_atoms)
@@ -826,6 +791,18 @@ class CoSMoSSearch:
             print(f"Lowest energy structure (E = {best_energy:.6f} eV) saved to: {best_file}")
         
         return self.pool, self.real_energies
+
+    def _translate_to_center(self, atoms):
+        if len(self.vacuum_axes) > 0:    # Pre-center structure along vacuum axes
+            cell = atoms.get_cell()
+            box_center = (cell[0] + cell[1] + cell[2]) / 2.0
+            pos0 = atoms.get_positions()
+            curr_center = pos0.mean(axis=0)
+            shift = box_center - curr_center
+            for i in range(3):
+                if i not in self.vacuum_axes:
+                    shift[i] = 0.0
+            atoms.set_positions(pos0 + shift)     
 
     def _biased_dimer_rotation(self, atoms, initial_direction):
         """
