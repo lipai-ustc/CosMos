@@ -56,7 +56,9 @@ def main() -> None:
     if not sys_config:
         raise ValueError("Configuration missing 'system' section")
     name = sys_config.get('name')
-    task = sys_config.get('task')
+    task = sys_config.get('task').lower()
+    if task not in ['global_search', 'structure_sampling']:
+        raise ValueError("Invalid task type. Must be 'global_search' or 'structure_sampling'.")
 
     # 2. Read structure file (optional)
     structure_path = config.get('system', {}).get('structure', 'init.xyz')
@@ -77,7 +79,7 @@ def main() -> None:
     potential_type = potential_config.get('type')
     if not potential_config or not potential_type:
         raise ValueError("Configuration missing 'potential' section")
-    calculator = load_potential(potential_config)
+    calculator = load_potential(potential_config,custom_atomic=False)
 
     # 4. Get Monte Carlo configuration (required)
     mc_config = config.get('monte_carlo')
@@ -99,8 +101,28 @@ def main() -> None:
     if rd_mode not in valid_modes:
         raise ValueError(f"Invalid random direction mode: '{rd_mode}'. Must be one of {valid_modes}.")
     element_weights = rd_config.get('element_weights', {}) # additional weight based on element type
-    atomic_calculator = rd_config.get('atomic_calculator', {})  # Default to use Nequip
-    random_direction={'mode': rd_mode, 'element_weights': element_weights, 'atomic_calculator': atomic_calculator}
+    atomic_energy_calculator_config = rd_config.get('atomic_energy_calculator', None)
+    # Load atomic energy calculator if specified
+    if atomic_energy_calculator_config:
+        atomic_energy_calculator = load_potential(atomic_energy_calculator_config)
+        # Verify it supports per-atom energy calculation
+        if not hasattr(atomic_energy_calculator, 'get_potential_energies'):
+            raise ValueError(
+                f"Atomic energy calculator (type: {atomic_energy_calculator_config.get('type', 'unknown')}) does not support per-atom energies.\n"
+                f"The calculator must have 'get_potential_energies' method.\n"
+                f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
+            )
+        print(f"Loaded user-specified atomic energy calculator: {atomic_energy_calculator_config.get('type', 'unknown')}")
+    else:
+        atomic_energy_calculator = load_potential(potential_config, custom_atomic=True)
+        if not hasattr(atomic_energy_calculator, 'get_potential_energies') and 'atomic' in rd_mode:
+            raise ValueError(
+                f"Primary potential calculator does not support per-atom energies.\n"
+                f"The calculator must have 'get_potential_energies' method.\n"
+                f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
+            )
+        print("No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies.")
+    random_direction={'mode': rd_mode, 'element_weights': element_weights, 'atomic_energy_calculator': atomic_energy_calculator}
 
     # 6. Get Climbing configuration (optional)
     climb_config = config.get('climbing',{})
@@ -235,7 +257,7 @@ def main() -> None:
         structure_info=structure_info,
         calculator=calculator,
         monte_carlo=monte_carlo,
-        random_direction_mode=random_direction,
+        random_direction=random_direction,
         climbing=climbing,
         optimizer=optimizer,
         mobility_control=mobility_control,
@@ -244,11 +266,7 @@ def main() -> None:
     )
     
     # Run CoSMoS global optimization
-    cosmos.run(steps=mc_steps)
-    
-    # Get results and output summary
-    minima_pool = cosmos.get_minima_pool()
-    energies = cosmos.real_energies  # Use pre-computed energies instead of recalculating
+    minima_pool, energies = cosmos.run(steps=mc_steps)
     
     print("\nCoSMoS search completed!")
     print(f"Found {len(minima_pool)} energy minimum structures")

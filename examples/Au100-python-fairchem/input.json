@@ -1,6 +1,7 @@
 {
   "system": {
-    "name": "Au100_surface"
+    "name": "Au100_surface",
+    "task": "global_search"
   },
   "potential": {
     "type": "python"
