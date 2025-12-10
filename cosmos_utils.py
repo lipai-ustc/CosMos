@@ -47,8 +47,7 @@ Python {python_ver}, ASE {ase_ver}, dscribe {dscribe_ver}"""
    
     return header
     
-
-def load_potential(potential_config):
+def load_potential(potential_config, custom_atomic=False):
     """
     Automatically load different types of potential calculators based on configuration
     
@@ -116,9 +115,11 @@ def load_potential(potential_config):
             model = CHGNet.load(model_name)
         return model.get_calculator()
     elif pot_type == 'deepmd':
-        from deepmd.calculator import DP
-        model_path = potential_config.get('model')
-        return DP(model=model_path)
+        if custom_atomic:    # custom 
+            return DeepMDCalculatorWithAtomicEnergy(model=potential_config.get('model'))
+        else:    
+            from deepmd.calculator import DP
+            return DP(model=potential_config.get('model'))
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
         # Parse LAMMPS potential configuration
@@ -138,14 +139,10 @@ def load_potential(potential_config):
         from nequip.ase import NequIPCalculator
         model_path = potential_config.get('model')
         device = potential_config.get('device', 'cpu')
-        return NequIPCalculator.from_compiled_model(
-            compile_path=model_path,
-            device=device
-        )
+        return NequIPCalculator.from_compiled_model(compile_path=model_path, device=device)
     elif pot_type == 'vasp':
         from ase.calculators.vasp import Vasp
         incar_file = potential_config.get('model', 'INCAR')
-        
         # Try to read INCAR parameters if file exists
         vasp_params = {}
         import os
@@ -183,19 +180,21 @@ def load_potential(potential_config):
 
 # Structure analysis and I/O utilities
 
-def compute_sorted_structure_descriptor(atoms: Atoms, species: List[str], mobile_atoms: Optional[List[int]] = None, rcut: float = 4.0, nmax: int = 5, lmax: int = 5) -> np.ndarray:
+def compute_sorted_structure_descriptor(atoms: Atoms, mobile_atoms: Optional[List[int]] = None, rcut: float = 4.0, nmax: int = 5, lmax: int = 5) -> np.ndarray:
     """Permutation-invariant structure descriptor with element-wise grouping.
 
     - Mobile atoms (indices in `mobile_atoms`) are included; all others are ignored.
-    - For each chemical element in `species` order, collect SOAP rows of that element,
+    - For each chemical element present in atoms, collect SOAP rows of that element,
       sort them by L2 norm, then flatten and concatenate across elements.
     """
+    # Get unique species from atoms
+    symbols = np.array(atoms.get_chemical_symbols())
+    species = sorted(set(symbols))
+    
     # Build SOAP descriptor for all atoms
     from dscribe.descriptors import SOAP
     soap = SOAP(species=species, periodic=True, r_cut=rcut, n_max=nmax, l_max=lmax)
     per_atom = soap.create(atoms)
-
-    symbols = np.array(atoms.get_chemical_symbols())
 
     # Determine mobile mask from mobile_atoms
     n_atoms = len(atoms)
@@ -205,7 +204,7 @@ def compute_sorted_structure_descriptor(atoms: Atoms, species: List[str], mobile
     else:
         mobile_mask = np.ones(n_atoms, dtype=bool)
 
-    # Build descriptor grouped by element type in the order of `species`
+    # Build descriptor grouped by element type
     blocks = []
     for elem in species:
         elem_mask = (symbols == elem) & mobile_mask
@@ -225,7 +224,7 @@ def compute_sorted_structure_descriptor(atoms: Atoms, species: List[str], mobile
 
 def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
                                     pool: List[Atoms],
-                                    species: List[str],
+                                    #species: List[str],
                                     tol: float = 0.1,
                                     energy: Optional[float] = None,
                                     pool_energies: Optional[List[float]] = None,
@@ -238,12 +237,12 @@ def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
     """
     if not pool:
         return False
-    desc_new = compute_sorted_structure_descriptor(new_atoms, species, mobile_atoms=mobile_atoms)
+    desc_new = compute_sorted_structure_descriptor(new_atoms, mobile_atoms=mobile_atoms)
     best_idx = -1
     best_dist = float('inf')
     for i, atoms in enumerate(pool):
         # Same mobile_atoms set applies to all structures in this run
-        desc_old = compute_sorted_structure_descriptor(atoms, species, mobile_atoms=mobile_atoms)
+        desc_old = compute_sorted_structure_descriptor(atoms, mobile_atoms=mobile_atoms)
         d = np.linalg.norm(desc_new - desc_old)
         if d < best_dist:
             best_dist = d

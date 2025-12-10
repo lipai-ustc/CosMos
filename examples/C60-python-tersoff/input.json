@@ -1,6 +1,7 @@
 {
   "system": {
-    "name": "C60_structure"
+    "name": "C60_structure",
+    "task": "global_search"
   },
   "potential": {
     "type": "python"

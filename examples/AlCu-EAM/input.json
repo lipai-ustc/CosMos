@@ -1,6 +1,7 @@
 {
   "system": {
-    "name": "AlCu_alloy"
+    "name": "AlCu_alloy",
+    "task": "global_search"
   },
   "potential": {
     "type": "eam",
