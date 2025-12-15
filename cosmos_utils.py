@@ -120,6 +120,10 @@ def load_potential(potential_config, custom_atomic=False):
         else:    
             from deepmd.calculator import DP
             return DP(model=potential_config.get('model'))
+    elif pot_type == 'nep':
+        from calorine.calculators import CPUNEP
+        model_path = potential_config.get('model')
+        return CPUNEP(model_path)
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
         # Parse LAMMPS potential configuration
