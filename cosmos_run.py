@@ -101,27 +101,32 @@ def main() -> None:
     if rd_mode not in valid_modes:
         raise ValueError(f"Invalid random direction mode: '{rd_mode}'. Must be one of {valid_modes}.")
     element_weights = rd_config.get('element_weights', {}) # additional weight based on element type
-    atomic_energy_calculator_config = rd_config.get('atomic_energy_calculator', None)
-    # Load atomic energy calculator if specified
-    if atomic_energy_calculator_config:
-        atomic_energy_calculator = load_potential(atomic_energy_calculator_config)
-        # Verify it supports per-atom energy calculation
-        if not hasattr(atomic_energy_calculator, 'get_potential_energies'):
-            raise ValueError(
-                f"Atomic energy calculator (type: {atomic_energy_calculator_config.get('type', 'unknown')}) does not support per-atom energies.\n"
-                f"The calculator must have 'get_potential_energies' method.\n"
-                f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
-            )
-        print(f"Loaded user-specified atomic energy calculator: {atomic_energy_calculator_config.get('type', 'unknown')}")
+
+    if 'atomic' in rd_mode:
+        atomic_energy_calculator_config = rd_config.get('atomic_energy_calculator', None)
+        # Load atomic energy calculator if specified
+        if atomic_energy_calculator_config:
+            atomic_energy_calculator = load_potential(atomic_energy_calculator_config)
+            # Verify it supports per-atom energy calculation
+            if not hasattr(atomic_energy_calculator, 'get_potential_energies'):
+                raise ValueError(
+                    f"Atomic energy calculator (type: {atomic_energy_calculator_config.get('type', 'unknown')}) does not support per-atom energies.\n"
+                    f"The calculator must have 'get_potential_energies' method.\n"
+                    f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
+                )
+            rd_info=f"Loaded user-specified atomic energy calculator: {atomic_energy_calculator_config.get('type', 'unknown')}"
+        else:
+            atomic_energy_calculator = load_potential(potential_config, custom_atomic=True)
+            if not hasattr(atomic_energy_calculator, 'get_potential_energies'):
+                raise ValueError(
+                    f"Primary potential calculator does not support per-atom energies.\n"
+                    f"The calculator must have 'get_potential_energies' method.\n"
+                    f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
+                )
+            rd_info=f"No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies."
     else:
-        atomic_energy_calculator = load_potential(potential_config, custom_atomic=True)
-        if not hasattr(atomic_energy_calculator, 'get_potential_energies') and 'atomic' in rd_mode:
-            raise ValueError(
-                f"Primary potential calculator does not support per-atom energies.\n"
-                f"The calculator must have 'get_potential_energies' method.\n"
-                f"Please specify a compatible calculator in 'random_direction.atomic_energy_calculator'."
-            )
-        print("No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies.")
+        atomic_energy_calculator = None
+                  
     random_direction={'mode': rd_mode, 'element_weights': element_weights, 'atomic_energy_calculator': atomic_energy_calculator}
 
     # 6. Get Climbing configuration (optional)
@@ -221,22 +226,31 @@ def main() -> None:
     sys.stdout = TeeLogger(log_path, mode='w')        
     
     print(get_version_info())    #header
-    print('============================================================================================')   
-    print('=                                CoSMoS Input Configuration                                =')
-    print('============================================================================================') 
+    print('\n\n===================================    CoSMoS Input Configuration    ================================\n')
+    print(f'\nSystem information:')
     print(f'  System name      : {name}')   
     print(f'  Task type        : {task}')
     print(f'  Structure file   : {structure_path}')
     print(f'  Geometry type    : {geometry_type}')
+    print(f'\nPotential information:')
     print(f'  Potential type   : {potential_type}')
-    print(f'  MC steps         : {mc_steps}')
+    if potential_config.get('model',None) is not None:
+        if not os.path.isabs(potential_config['model']):
+            potential_config['model'] = os.path.join(cwd, potential_config['model'])
+        print(f'  Potential mode   : {potential_config["model"]}')
+    print(f'\nMonte Carlo information:')
+    print(f'  Monte Carlo steps: {mc_steps}')
     print(f'  Temperature (K)  : {temperature}')
+    print(f'\nClimbing information:')
     print(f'  Gaussian height w: {gaussian_height}')
     print(f'  Gaussian width ds: {gaussian_width}')
     print(f'  Max Gaussians H  : {max_gaussians}')
+    print(f'\nOptimizer information:')
     print(f'  Optimizer steps  : {max_steps}')
     print(f'  Optimizer fmax   : {fmax}')
+    print(f'\nRandom Direction information:')
     print(f'  RD mode          : {rd_mode}')
+
     if element_weights:  # Empty dict evaluates to False
         print(f'  Element weights  : {element_weights}')
     if mobility_mode != 'all':
@@ -247,10 +261,14 @@ def main() -> None:
         print(f'  Wall offset      : {wall_offset}')
     else:
         print('  Mobility control : None')
+    print(f'\nOutput information:')
     print(f'  Output dir       : {output_dir}')
-    print(f'  Debug mode       : {debug_mode}')        
+    print(f'  Debug mode       : {debug_mode}')
+    
+    if 'atomic' in rd_mode:
+        print(f'\n  {rd_info}')
 
-    print('\n\n=====================================    Start of CoSMoS Search    ==================================\n\n') 
+    print('\n\n=====================================    Start of CoSMoS Search    ==================================\n') 
 
     cosmos = CoSMoSSearch(
         task=task,
@@ -276,7 +294,7 @@ def main() -> None:
     print(f"All minima structures in: {os.path.join(output_dir, 'all_minima.xyz')}")
     print(f"Best structure saved to: {os.path.join(output_dir, 'best_str.xyz')}")
 
-    print('\n\n=====================================    Finish of CoSMoS Search    ==================================\n\n')
+    print('\n\n======================================    End of CoSMoS Search    ===================================\n')
 
     # Calculate and print total execution time
     end_time = time.time()
@@ -284,7 +302,7 @@ def main() -> None:
     hours = int(elapsed_time // 3600)
     minutes = int((elapsed_time % 3600) // 60)
     seconds = elapsed_time % 60
-    print(f"\nTotal execution time: {hours:02d}:{minutes:02d}:{seconds:06.3f}")
+    print(f"Total execution time: {hours:02d}:{minutes:02d}:{seconds:06.3f}")
 
 if __name__ == '__main__':
     main()

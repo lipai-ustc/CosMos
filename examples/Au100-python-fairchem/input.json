@@ -13,11 +13,11 @@
   "climbing": {
     "gaussian_height": 0.15,
     "gaussian_width": 0.25,
-    "max_gaussians": 15,
-    "optimizer": {
-      "max_steps": 150,
-      "fmax": 0.05
-    }
+    "max_gaussians": 15
+  },
+  "optimizer": {
+    "max_steps": 150,
+    "fmax": 0.05
   },
   "mobility_control": {
     "mode": "region",
@@ -31,5 +31,6 @@
   },
   "output": {
     "directory": "cosmos_output"
-  }
+  },
+  "debug": false
 }

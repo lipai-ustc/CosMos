@@ -8,19 +8,30 @@
     "model": "AlCu.eam.alloy"
   },
   "monte_carlo": {
-    "steps": 10,
+    "steps": 200,
     "temperature": 300
   },
-  "climbing": {
-    "gaussian_height": 0.28,
-    "gaussian_width": 0.28,
-    "max_gaussians": 20,
-    "optimizer": {
-      "max_steps": 200,
-      "fmax": 0.05
+  "random_direction": {
+    "mode": "base_plus_nl",
+    "element_weights": {
+      "Al": 1.0,
+      "Cu": 1.0
     }
+  },
+  "climbing": {
+    "gaussian_height": 0.30,
+    "gaussian_width": 0.10,
+    "max_gaussians": 20
+  },
+  "optimizer": {
+    "max_steps": 200,
+    "fmax": 0.05
+  },
+  "mobility_control": {
+    "mode": "all"
   },
   "output": {
     "directory": "cosmos_output"
-  }
+  },
+  "debug": false
 }

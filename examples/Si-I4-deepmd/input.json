@@ -1,18 +1,22 @@
 {
   "system": {
-    "name": "C60_structure",
+    "name": "Si-I4",
     "task": "global_search"
   },
   "potential": {
-    "type": "python"
+    "type": "deepmd",
+    "model": "Si.pb"
   },
   "monte_carlo": {
-    "steps": 100,
+    "steps": 200,
     "temperature": 300
   },
+  "random_direction": {
+    "mode": "base_plus_nl"
+  },
   "climbing": {
-    "gaussian_height": 0.2,
-    "gaussian_width": 0.3,
+    "gaussian_height": 0.30,
+    "gaussian_width": 0.10,
     "max_gaussians": 20
   },
   "optimizer": {
