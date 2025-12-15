@@ -209,7 +209,7 @@ class CoSMoSSearch:
         
         # Output final optimized energy
         final_energy = atoms.get_potential_energy()
-        print(f"Local minimization completed: E = {final_energy:.6f} eV")
+        #print(f"Local minimization completed: E = {final_energy:.6f} eV")
         
         # Output final energy components if available
         if isinstance(calc, BiasedCalculator) and hasattr(calc, 'results') and 'energy_components' in calc.results:
@@ -551,7 +551,7 @@ class CoSMoSSearch:
             steps: Total algorithm iterations
         """
         # Initial structure energy log (stdout is already tee'd to cosmos_log.txt by cosmos_run)
-        print(f"Initial structure: Energy = {self._get_real_energy(self.atoms):.6f} eV")
+        #print(f"Initial structure: Energy = {self._get_real_energy(self.atoms):.6f} eV")
         
         # Initialize combined trajectory file (remove old one if exists)
         trajectory_file = os.path.join(self.output_dir, 'all_minima.xyz')
@@ -563,7 +563,7 @@ class CoSMoSSearch:
         current_energy = self._get_real_energy(current_atoms)
         
         for step in range(steps):
-            print(f"\n--- CoSMoS Step {step + 1}/{steps} ---")
+            print(f"\n------------- CoSMoS Step {step + 1}/{steps} -------------")
             
             # Algorithm Step 1: Generate initial random direction N⁰ at current minimum Rm
             direction = self._generate_random_direction(current_atoms)
@@ -639,10 +639,10 @@ class CoSMoSSearch:
                 # Algorithm Step 5: Check stopping condition
                 # Stop if: (i) reached max Gaussians H, or (ii) structure relaxed back below starting energy
                 if n >= self.H:
-                    print(f"\nClimb phase end: n={n}, reached maximum Gaussians")
+                    print(f"\n--- Climb end ---\n n_gaussian={n}, reached maximum Gaussians")
                     break
                 if current_climb_energy <= current_energy:
-                    print(f"\nClimb phase end: n={n}, energy {current_climb_energy:.6f} eV <= initial {current_energy:.6f} eV")
+                    print(f"\n--- Climb end ---\n n_gaussian={n}, energy {current_climb_energy:.6f} eV <= initial {current_energy:.6f} eV")
                     break
             
             # Algorithm Step 6: Remove all biased potentials and optimize on real potential energy surface

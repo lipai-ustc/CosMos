@@ -237,7 +237,7 @@ def main() -> None:
     if potential_config.get('model',None) is not None:
         if not os.path.isabs(potential_config['model']):
             potential_config['model'] = os.path.join(cwd, potential_config['model'])
-        print(f'  Potential mode   : {potential_config["model"]}')
+        print(f'  Potential model  : {potential_config["model"]}')
     print(f'\nMonte Carlo information:')
     print(f'  Monte Carlo steps: {mc_steps}')
     print(f'  Temperature (K)  : {temperature}')
