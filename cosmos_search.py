@@ -8,7 +8,7 @@ from ase.io import write as ase_write
 from ase.constraints import FixAtoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.optimize import LBFGS
-from cosmos_utils import is_duplicate_by_desc_and_energy, calculate_wall_potential
+from cosmos_utils import is_duplicate_by_desc_and_energy, calculate_wall_potential, periodic_distance
 
 class BiasedCalculator(Calculator):
     """
@@ -577,6 +577,8 @@ class CoSMoSSearch:
             Emax = current_energy  # Record highest energy during climbing phase
             
             for n in range(1, self.H + 1):
+
+                base_atoms = climb_atoms.copy()
                 # Calculate direction vector
                 if n == 1:
                     # First step uses optimized direction from Step 2
@@ -607,7 +609,8 @@ class CoSMoSSearch:
                 climb_atoms_positions = climb_atoms.get_positions().flatten()
                 climb_atoms_positions += self.ds * N
                 climb_atoms.set_positions(climb_atoms_positions.reshape(-1, 3))
-                
+                print(climb_atoms.get_positions().size)
+                print("Diff between base_atoms and climb_atoms before local min:", periodic_distance(base_atoms, climb_atoms, N))
                 # Calculate wall potential for current configuration
                 wall_energy, wall_forces = calculate_wall_potential(climb_atoms, self.mobility_region, self.wall_strength, self.wall_offset)
                 
@@ -623,7 +626,7 @@ class CoSMoSSearch:
                 # Locally optimize on modified potential energy surface
                 climb_atoms.calc = biased_calc
                 self._local_minimize(climb_atoms)
-                
+                print("Diff between base_atoms and climb_atoms after local min:", periodic_distance(base_atoms, climb_atoms, N))
                 
                 E_base, E_bias, E_wall = climb_atoms.calc.results['energy_components']
                 print(f"Bias energy components: "

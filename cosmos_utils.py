@@ -404,6 +404,89 @@ def calculate_wall_potential(atoms: Atoms, mobility_region, wall_strength: float
                     wall_forces[3*i:3*i+3] = force_vec
     return wall_energy, wall_forces
 
+def periodic_distance(
+    atoms1: Atoms,
+    atoms2: Atoms,
+    N: Optional[np.ndarray] = None
+) -> Tuple[float, Optional[float]]:
+    from typing import Optional, Tuple
+    """
+    Compute the Euclidean distance between two periodic atomic structures,
+    taking into account the minimum image convention (MIC).
+
+    Optionally, if a reference direction vector N is provided (shape: (3, n_atoms)),
+    also compute the angle (in radians) between the actual displacement and N.
+
+    Requirements:
+    - atoms1 and atoms2 must have the same number of atoms;
+    - they must share identical unit cells and PBC settings;
+    - atoms must be in the same order.
+
+    Parameters:
+    atoms1, atoms2 : ASE Atoms objects
+    N : optional array of shape (3, n_atoms)
+        Reference displacement direction for each atom (in Cartesian coordinates).
+        If provided, the angle between the actual displacement and N is returned.
+
+    Returns:
+    distance : float
+        L2 norm of the MIC-corrected displacement vector (sqrt(sum |dr|^2)).
+    angle : float or None
+        Angle in radians between the displacement vector and N (flattened to 3N-D),
+        or None if N is not provided.
+    """
+    # Validate inputs
+    if len(atoms1) != len(atoms2):
+        raise ValueError("atoms1 and atoms2 must have the same number of atoms.")
+    
+    if not np.allclose(atoms1.cell, atoms2.cell, atol=1e-6):
+        raise ValueError("The unit cells of atoms1 and atoms2 must be identical.")
+    
+    if not np.array_equal(atoms1.pbc, atoms2.pbc):
+        raise ValueError("PBC settings must be identical.")
+
+    # Get fractional coordinates and compute MIC-corrected displacement
+    frac1 = atoms1.get_scaled_positions()
+    frac2 = atoms2.get_scaled_positions()
+    df = frac2 - frac1
+    pbc = atoms1.pbc
+    if np.any(pbc):
+        df[:, pbc] -= np.round(df[:, pbc])
+
+    # Convert to Cartesian displacement
+    cell = atoms1.cell
+    dr_cart = df @ cell  # Shape: (n_atoms, 3)
+
+    # Total Euclidean distance
+    distance = np.linalg.norm(dr_cart)
+
+    # Handle optional direction vector N
+    if N is None:
+        return distance, None
+
+    # Validate N
+    n_atoms = len(atoms1)
+
+    # Flatten both vectors into 3N-dimensional vectors for angle computation
+    # Note: dr_cart is (n_atoms, 3) → reshape to (3*n_atoms,)
+    dr_flat = dr_cart.T.ravel()  # Equivalent to N.ravel() if N is (3, n)
+    N_flat = N
+
+    # Normalize vectors (avoid division by zero)
+    norm_dr = np.linalg.norm(dr_flat)
+    norm_N = np.linalg.norm(N_flat)
+
+    if norm_dr == 0 or norm_N == 0:
+        # Undefined angle if either vector is zero
+        angle = 0.0 if norm_dr == 0 and norm_N == 0 else np.pi / 2
+    else:
+        # Clamp dot product to [-1, 1] to avoid numerical errors in arccos
+        cos_angle = np.dot(dr_flat, N_flat) / (norm_dr * norm_N)
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        angle = np.arccos(cos_angle)
+
+    return distance, angle    
+
 
 class DeepMDCalculatorWithAtomicEnergy(Calculator):
     """Wrapper for DeepMD calculator to enable per-atom energy calculation.
