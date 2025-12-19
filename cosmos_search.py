@@ -382,6 +382,7 @@ class CoSMoSSearch:
 
         else:
             N = Ns
+        # introduce dimer method from ase
         
         # Normalize and scale by sqrt(n_mobile)
 
