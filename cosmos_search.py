@@ -3,74 +3,12 @@
 # Reference 2: J. Chem. Theory Comput. 2012, 8, 2215
 import os,sys
 import numpy as np
-from ase import Atoms
 from ase.io import write as ase_write
 from ase.constraints import FixAtoms
-from ase.calculators.calculator import Calculator, all_changes
 from ase.optimize import LBFGS
-from cosmos_utils import is_duplicate_by_desc_and_energy, calculate_wall_potential, periodic_distance
-
-class BiasedCalculator(Calculator):
-    """
-    Biased potential energy calculator for modifying the Potential Energy Surface (PES) during CoSMoS climbing phase
-    Adds multiple positive Gaussian bias potentials to the original energy surface to guide structural exploration
-    Single Gaussian potential form: V_bias = w * exp(-(d · (R - R1))^2 / (2 * σ^2))
-    """
-    implemented_properties = ['energy', 'forces']
-
-    def __init__(self, base_calculator, gaussian_params, ds=0.2, wall_energy=0.0, wall_forces=None):
-        super().__init__()
-        self.base_calc = base_calculator  # Original potential energy calculator
-        self.gaussian_params = gaussian_params  # List of Gaussian parameters, each containing (d, R1, w)
-        self.ds = ds  # Step size parameter, used for Gaussian potential width
-        self.wall_energy = wall_energy  # Pre-calculated wall potential energy
-        self.wall_forces = wall_forces if wall_forces is not None else np.array([])  # Pre-calculated wall forces
-
-    def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
-        super().calculate(atoms, properties, system_changes)
-        
-        # Get original energy and forces
-        atoms_base = atoms.copy()
-        atoms_base.calc = self.base_calc
-        E0 = atoms_base.get_potential_energy()
-        F0 = atoms_base.get_forces().flatten()  # (3N,)
-
-        # Current position
-        R = atoms.positions.flatten()  # (3N,)
-
-        # Initialize total bias energy and forces to 0
-        V_bias_total = 0.0
-        F_bias_total = np.zeros_like(R)
-
-        # Sum all Gaussian potentials - according to equations (5) and (6) in the paper
-        for g_param in self.gaussian_params:
-            # g_param should be a tuple or list containing (d, R1, w)
-            if len(g_param) != 3:
-                continue
-
-            d, R1, w = g_param
-            R1_flat = R1.flatten()
-            dr = R - R1_flat
-            # Calculate projection: (R - R1)·Nn
-            proj = np.dot(dr, d)
-            
-            # Gaussian width uses self.ds (step size); equation parameters consolidated
-            # Calculate energy contribution of single Gaussian potential - according to equation (5) in the paper
-            V_bias = w * np.exp(-(proj**2) / (2 * self.ds**2))
-            V_bias_total += V_bias
-            
-            # Calculate force contribution of single Gaussian potential - derived from equation (5) in the paper
-            # F = -dV/dR = w * exp(...) * (proj / ds²) * d
-            F_bias = w * np.exp(-(proj**2) / (2 * self.ds**2)) * (proj / self.ds**2) * d
-            F_bias_total += F_bias
-
-        # Total energy and forces are original values plus bias and wall potential contributions
-        # Ensure wall_forces has correct shape
-        wall_forces = self.wall_forces if len(self.wall_forces) == len(R) else np.zeros_like(R)
-        self.results['energy'] = E0 + V_bias_total + self.wall_energy
-        self.results['forces'] = (F0 + F_bias_total + wall_forces).reshape((-1, 3))
-        self.results['energy_components'] = (E0, V_bias_total, self.wall_energy)
-
+from numpy.matlib import fmax
+from biased_calculator import BiasedCalculator
+from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance
 
 class CoSMoSSearch:
     def __init__(
@@ -78,11 +16,12 @@ class CoSMoSSearch:
         task,                # Task type (e.g., 'global_search','structure_sampling')
         structure_info,      # Dict with 'atoms', 'geometry_type', 'vacuum_axes'
         calculator,          # ASE calculator object
+        atomic_calculator,   # ASE calculator object for atomic energy calculation
         monte_carlo,         # Dict with 'steps', 'temperature'
         random_direction,    # Dict with 'mode', 'element_weights', 'atomic_calculator'
         climbing,            # Dict with 'gaussian_height', 'gaussian_width', 'max_gaussians'
         optimizer,           # Dict with 'max_steps', 'fmax'
-        mobility_control,    # Dict with 'mobile_atoms', 'mobility_region', 'wall_strength', 'wall_offset'
+        mobile_control,    # Dict with 'mobile_atoms', 'mobile_region', 'wall_strength', 'wall_offset'
         output_dir,          # Output directory
         debug,               # Debug mode for detailed logging
         **kwargs             # Additional parameters
@@ -93,10 +32,7 @@ class CoSMoSSearch:
         self.geometry_type = structure_info['geometry_type']
         self.vacuum_axes = structure_info['vacuum_axes']
         self.n_atoms = len(self.atoms)
-        
-        # Calculator
-        self.base_calc = calculator
-        
+
         # Monte Carlo parameters
         self.temperature = monte_carlo['temperature']
         self.k_boltzmann = 8.617333262e-5  # Boltzmann constant (eV/K)
@@ -104,7 +40,6 @@ class CoSMoSSearch:
         # Random direction parameters
         self.random_direction_mode = random_direction['mode'].strip().lower()
         self.element_weights = random_direction.get('element_weights', {})
-        self.atomic_energy_calculator = random_direction.get('atomic_energy_calculator')  # Should not be None
         
         # Climbing parameters
         self.ds = climbing['gaussian_width']   # Step size (also Gaussian width)
@@ -112,14 +47,14 @@ class CoSMoSSearch:
         self.H = climbing['max_gaussians']     # Max number of Gaussians
         
         # Optimizer parameters
-        self.fmax = optimizer['fmax']
-        self.max_steps = optimizer['max_steps']
+        self.opt_fmax = optimizer['fmax']
+        self.opt_max_steps = optimizer['max_steps']
         
-        # Mobility control
-        self.mobile_atoms = mobility_control['mobile_atoms']
-        self.mobility_region = mobility_control['mobility_region']
-        self.wall_strength = mobility_control['wall_strength']
-        self.wall_offset = mobility_control['wall_offset']
+        # Mobile control
+        self.mobile_atoms = mobile_control['mobile_atoms']
+        self.mobile_region = mobile_control['mobile_region']
+        self.wall_strength = mobile_control['wall_strength']
+        self.wall_offset = mobile_control['wall_offset']
         
         # Output and debug
         self.output_dir = output_dir
@@ -133,33 +68,44 @@ class CoSMoSSearch:
         self.pool = []  # Stores all found minimum energy structures
         self.real_energies = []  # Stores corresponding structure energies
         
-        # Compute mobility mask once at initialization
+        # Compute mobile mask once at initialization
         # mobile_atoms is now always provided as a list from cosmos_run (never None)
         # mobile_atoms is always provided by cosmos_run; if missing, this is a configuration error
         if self.mobile_atoms is None:
-            raise ValueError("mobility_control['mobile_atoms'] must be provided and cannot be None.\n"
-                             "Please check mobility_control configuration in input.json.")
+            raise ValueError("mobile_control['mobile_atoms'] must be provided and cannot be None.\n"
+                             "Please check mobile_control configuration in input.json.")
 
         self.mobile_mask = np.zeros(self.n_atoms, dtype=bool)
         self.mobile_mask[self.mobile_atoms] = True
         # Cache number of mobile atoms
         self.n_mobile = len(self.mobile_atoms)
         # Apply FixAtoms constraint to immobile atoms
-        # This ensures local minimization respects mobility constraints
+        # This ensures local minimization respects mobile constraints
         fixed_indices = [i for i in range(self.n_atoms) if not self.mobile_mask[i]]
         if len(fixed_indices) > 0:
             constraint = FixAtoms(indices=fixed_indices)
             self.atoms.set_constraint(constraint)
             print(f"Applied FixAtoms constraint to {len(fixed_indices)} immobile atoms.")
         
+        # Set up calculators
+        self.base_calc = calculator
+        self.atomic_calc = atomic_calculator
+        self.biased_calc = BiasedCalculator(
+            base_calculator=self.base_calc,
+            mobile_mask=self.mobile_mask,
+            ds=self.ds,
+            mobile_region=self.mobile_region,
+            wall_strength=self.wall_strength,
+            wall_offset=self.wall_offset
+        )
+
         # Initial structure optimization (real potential)
-        self.atoms.calc = self.base_calc
-        self._local_minimize(self.atoms)
         self._translate_to_center(self.atoms)
-        
+        self.atoms.calc = self.base_calc
+        self._local_minimize(self.atoms)        
         self._add_to_pool(self.atoms)
 
-    def _local_minimize(self, atoms, calc=None, fmax=None):
+    def _local_minimize(self, atoms, calc=None):
         """
         Perform local structure optimization using LBFGS algorithm
         Complies with CoSMoS algorithm documentation steps 4 and 6, using limited-memory BFGS optimizer for efficiency
@@ -205,16 +151,31 @@ class CoSMoSSearch:
             # Normal mode: no step-by-step logging
             opt = LBFGS(atoms, logfile=None)
         
-        opt.run(fmax=fmax or self.fmax)
-        
-        # Output final optimized energy
-        final_energy = atoms.get_potential_energy()
-        #print(f"Local minimization completed: E = {final_energy:.6f} eV")
-        
+
+        if isinstance(atoms.calc, BiasedCalculator):
+            atoms.get_potential_energy()
+            print(f"Before opt  No.: {len(atoms.calc.gaussian_params)}  "
+              f"E_base: {atoms.calc.results['E_base']:.3f} "
+              f"F_base: {np.linalg.norm(atoms.calc.results['F_base']):.3f}  "
+              f"E_gauss: {atoms.calc.results['E_gaussian']:.3f}  "
+              f"F_gauss: {np.linalg.norm(atoms.calc.results['F_gaussian']):.3f}  "
+              f"E_wall: {atoms.calc.results['E_wall']:.3f}  "
+              f"F_wall: {np.linalg.norm(atoms.calc.results['F_wall']):.3f}  "
+              f"F_total: {np.linalg.norm(atoms.calc.results['forces']):.3f}  ")
+
+        opt.run(fmax=self.opt_fmax,steps=self.opt_max_steps)
+       
         # Output final energy components if available
-        if isinstance(calc, BiasedCalculator) and hasattr(calc, 'results') and 'energy_components' in calc.results:
-            E_base, E_bias, E_wall = calc.results['energy_components']
-            print(f"  Final energy components: base = {E_base:.6f} eV, bias = {E_bias:.6f} eV, wall = {E_wall:.6f} eV")
+        if isinstance(atoms.calc, BiasedCalculator):
+            print(f"After opt   No.: {len(atoms.calc.gaussian_params)}  "
+              f"E_base: {atoms.calc.results['E_base']:.3f} "
+              f"F_base: {np.linalg.norm(atoms.calc.results['F_base']):.3f}  "
+              f"E_gauss: {atoms.calc.results['E_gaussian']:.3f}  "
+              f"F_gauss: {np.linalg.norm(atoms.calc.results['F_gaussian']):.3f}  "
+              f"E_wall: {atoms.calc.results['E_wall']:.3f}  "
+              f"F_wall: {np.linalg.norm(atoms.calc.results['F_wall']):.3f}  "
+              f"F_total: {np.linalg.norm(atoms.calc.results['forces']):.3f}  ")
+                      
 
     def _add_to_pool(self, atoms):
         """
@@ -245,7 +206,7 @@ class CoSMoSSearch:
         """
         # User explicitly specified calculator for atomic energy (already loaded)
         temp_atoms = atoms.copy()
-        temp_atoms.calc = self.atomic_energy_calculator
+        temp_atoms.calc = self.atomic_calc
         
         try:
             atomic_energies = temp_atoms.get_potential_energies()
@@ -253,7 +214,7 @@ class CoSMoSSearch:
         except (AttributeError, NotImplementedError, RuntimeError) as e:
             raise RuntimeError(
                 f"User-specified atomic energy calculator failed to compute per-atom energies: {e}\n"
-                f"Please check 'random_direction.atomic_energy_calculator' configuration in input.json."
+                f"Please check 'random_direction.atomic_calc' configuration in input.json."
             )
     
     def _get_energy_based_scales(self, atoms):
@@ -360,14 +321,14 @@ class CoSMoSSearch:
             # Debug: print atom scale and expected displacement magnitude
             # For 3D Gaussian N(0,σ), E[|r|] = σ * sqrt(8/π) ≈ 1.596σ
         
-        Ns = Ns / np.linalg.norm(Ns) * np.sqrt(n_mobile / 10)            
+        Ns = Ns / np.linalg.norm(Ns)
         
         if self.debug:
             print(f"|Ns|: {np.linalg.norm(Ns):.6f}")
             for i in range(n_atoms):
                 ns_mag = np.linalg.norm(Ns[3*i:3*i+3])
                 ns_vec = Ns[3*i:3*i+3]
-                if i<100:
+                if self.mobile_mask[i]:
                     print(f"Atom {i:3d}: atom_scale={atom_scale:.3f}, Ns_i=[{ns_vec[0]:8.4f}, {ns_vec[1]:8.4f}, {ns_vec[2]:8.4f}], |Ns_i|={ns_mag:.4f}")
 
         # Generate local rigid movement direction Nl (non-adjacent atom bonding pattern)
@@ -425,7 +386,8 @@ class CoSMoSSearch:
         # Normalize and scale by sqrt(n_mobile)
 
         try:
-            N = N / np.linalg.norm(N) * np.sqrt(n_mobile / 10)  # let each N component be on average of magnitude 1/sqrt(5)
+            #N = N / np.linalg.norm(N) * np.sqrt(n_mobile / 10)  # let each N component be on average of magnitude 1/sqrt(5)
+            N = N / np.linalg.norm(N)   # let each N component be on average of magnitude 1/sqrt(5)
         except:
             raise ValueError("Failed to normalize N vector")
 
@@ -444,11 +406,12 @@ class CoSMoSSearch:
             # Show per-atom displacement magnitudes
             displacements = []
             for i in range(n_atoms):
-                disp_vec = N[3*i:3*i+3]
-                disp_mag = np.linalg.norm(disp_vec)
-                actual_disp = self.ds * disp_mag
-                is_mobile = "mobile" if (self.mobile_mask is None or self.mobile_mask[i]) else "fixed"
-                displacements.append((i, disp_mag, actual_disp, is_mobile))
+                if self.mobile_mask[i]:
+                    disp_vec = N[3*i:3*i+3]
+                    disp_mag = np.linalg.norm(disp_vec)
+                    actual_disp = self.ds * disp_mag
+                    is_mobile = "mobile" if (self.mobile_mask is None or self.mobile_mask[i]) else "fixed"
+                    displacements.append((i, disp_mag, actual_disp, is_mobile))
             
             # Print statistics
             mobile_disps = [d[2] for d in displacements if d[3] == "mobile"]
@@ -558,83 +521,57 @@ class CoSMoSSearch:
         if os.path.exists(trajectory_file):
             os.remove(trajectory_file)
         
+        climb_info_file=open("climb.info","w")
+        climb_info_file.write("#index before0/after1 d_climb_origin  angle  d_clime_base angle\n")
         # Initialize current structure as initial minimum structure
         current_atoms = self.atoms.copy()
-        current_energy = self._get_real_energy(current_atoms)
         
         for step in range(steps):
             print(f"\n------------- CoSMoS Step {step + 1}/{steps} -------------")
-            
-            # Algorithm Step 1: Generate initial random direction N⁰ at current minimum Rm
-            direction = self._generate_random_direction(current_atoms)
-            
-            # Algorithm Step 2: Optimize direction using biased dimer rotation to get N¹
-            optimized_direction = self._biased_dimer_rotation(current_atoms, direction)
-            
-            # Algorithm Steps 3-4: Climbing phase - add Gaussian potentials and locally optimize
-            climb_atoms = current_atoms.copy()
-            gaussian_params = []
-            Emax = current_energy  # Record highest energy during climbing phase
-            
-            for n in range(1, self.H + 1):
 
+            current_atoms.calc=self.base_calc
+            current_energy = self._get_real_energy(current_atoms)  # already relaxed
+            Emax = current_energy  # Record highest energy during climbing phase
+
+            climb_atoms = current_atoms.copy()
+            climb_atoms.calc=self.biased_calc
+
+            gaussian_params = []
+            N = self._generate_random_direction(current_atoms)
+
+            for n in range(1, self.H + 1):
+                N = self._biased_dimer_rotation(climb_atoms, N)
                 base_atoms = climb_atoms.copy()
-                # Calculate direction vector
-                if n == 1:
-                    # First step uses optimized direction from Step 2
-                    N = optimized_direction
-                else:
-                    # Subsequent steps: refine direction using biased dimer rotation on current biased PES
-                    # No new random direction - use current climbing direction as initial guess
-                    N = self._biased_dimer_rotation(climb_atoms, N)
-                
-                # Apply mobility mask
-                if self.mobile_mask is not None:
-                    for i in range(len(climb_atoms)):
-                        if not self.mobile_mask[i]:
-                            N[3*i:3*i+3] = 0.0
-                # Keep N magnitude from rotation and n_mobile scaling (do not renormalize here)
-                
                 # CRITICAL: Move structure along direction N before adding bias potential
                 # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
                 # Add new Gaussian potential at the CURRENT position (before displacement)
-                g_param = self._add_gaussian(climb_atoms, N)
-                gaussian_params.append(g_param)
+                gaussian_params.append((N.copy(),climb_atoms.positions.flatten(),self.w))  #(d, R1, w)
                 # Debug: report Gaussian parameters
                 if self.debug:
-                    d, R1, w = g_param
-                    print(f"Added Gaussian #{n}: w={w:.4f}, sigma={self.ds:.4f} Å, |d|={np.linalg.norm(d):.4f}")
+                    print(f"Added Gaussian #{n}: w={self.w:.4f}, sigma={self.ds:.4f} Å, |d|={np.linalg.norm(N):.4f}")
                 
                 # THEN displace structure along direction N by ds
                 climb_atoms_positions = climb_atoms.get_positions().flatten()
                 climb_atoms_positions += self.ds * N
                 climb_atoms.set_positions(climb_atoms_positions.reshape(-1, 3))
-                print(climb_atoms.get_positions().size)
-                print("Diff between base_atoms and climb_atoms before local min:", periodic_distance(base_atoms, climb_atoms, N))
+                # Write to climbing.info file (file handle is kept open)
+                distance_0_org, angle_0_org = periodic_distance(current_atoms, climb_atoms, N)
+                distance_0_bas, angle_0_bas = periodic_distance(base_atoms, climb_atoms, N)
+                climb_info_file.write(f"{step} 0 {distance_0_org:.4f} {angle_0_org:.4f} {distance_0_bas:.4f} {angle_0_bas:.4f}\n")
+                print(f"{step} 0 {distance_0_org:.4f} {angle_0_org:.4f} {distance_0_bas:.4f} {angle_0_bas:.4f}\n")
                 # Calculate wall potential for current configuration
-                wall_energy, wall_forces = calculate_wall_potential(climb_atoms, self.mobility_region, self.wall_strength, self.wall_offset)
-                
-                # Create biased calculator with all Gaussian potentials
-                biased_calc = BiasedCalculator(
-                    base_calculator=self.base_calc,
-                    gaussian_params=gaussian_params,
-                    ds=self.ds,
-                    wall_energy=wall_energy,
-                    wall_forces=wall_forces
-                )
-                
-                # Locally optimize on modified potential energy surface
-                climb_atoms.calc = biased_calc
-                self._local_minimize(climb_atoms)
-                print("Diff between base_atoms and climb_atoms after local min:", periodic_distance(base_atoms, climb_atoms, N))
-                
-                E_base, E_bias, E_wall = climb_atoms.calc.results['energy_components']
-                print(f"Bias energy components: "
-                    f"base = {E_base:.6f} eV, "
-                    f"bias = {E_bias:.6f} eV, "
-                    f"wall = {E_wall:.6f} eV"
-                    )
 
+                # Locally optimize on modified potential energy surface
+                self.biased_calc.reset_gaussians(gaussian_params)
+                climb_atoms.calc = self.biased_calc
+                self._local_minimize(climb_atoms)
+                # Write to climbing.info file (file handle is kept open)
+                distance_1_org, angle_1_org = periodic_distance(current_atoms, climb_atoms, N)
+                distance_1_bas, angle_1_bas = periodic_distance(base_atoms, climb_atoms, N)
+                climb_info_file.write(f"{step} 1 {distance_1_org:.4f} {angle_1_org:.4f} {distance_1_bas:.4f} {angle_1_bas:.4f}\n")
+                print(f"{step} 1 {distance_1_org:.4f} {angle_1_org:.4f} {distance_1_bas:.4f} {angle_1_bas:.4f}\n")
+                                
+                climb_info_file.flush()
                 # Compute real energy
                 current_climb_energy = self._get_real_energy(climb_atoms)
                 Emax = max(Emax, current_climb_energy)
@@ -683,13 +620,15 @@ class CoSMoSSearch:
                     # Duplicate structure, but still update current_atoms to explore from different point
                     # This prevents getting stuck in the same location
                     print("Structure is duplicate, not added to pool")
+                    self._add_to_pool(climb_atoms)
                     # No need to update pool
             else:
                 print(f"Reject new structure: ΔE = {delta_E:.6f} eV, P = {accept_prob:.4f}")
+                self._add_to_pool(climb_atoms)
             
             # Output current step information
             print(f"Step {step+1}: Energy = {current_energy:.6f} eV")
-        
+
         print("\nCoSMoS search completed!")
         print(f"All {len(self.pool)} minima structures saved to: {os.path.join(self.output_dir, 'all_minima.xyz')}")
         
@@ -737,14 +676,11 @@ class CoSMoSSearch:
         N = initial_direction.copy() / norm_ini
               
         # Dimer parameters from SSW paper
-        delta_R = 0.005  # Dimer separation (typical: 0.005 Å)
+        delta_R = 0.02  # Dimer separation (typical: 0.02 Å)
         theta_trial = 0.5 * np.pi / 180.0  # Trial rotation angle (radians), ~0.5 degrees
         max_rotations = 10  # Maximum number of rotations
         f_rot_tol = 0.01  # Rotational force tolerance (eV/Å)
-        
-        # Bias potential parameter (from Eq. 6 in paper)
-        a = 1.0 / (self.ds ** 2)  # Parameter controlling bias potential strength
-        
+
         # Current position (flattened)
         R0_flat = atoms.positions.flatten()
         
@@ -803,10 +739,6 @@ class CoSMoSSearch:
             F0_trial_approx = -F1_trial
             C_trial = np.dot((F0_trial_approx - F1_trial), N_trial) / delta_R
             
-            # Estimate optimal rotation angle using finite difference
-            # dC/dθ ≈ (C_trial - C) / θ_trial
-            dC_dtheta = (C_trial - C) / theta_trial
-            
             # Compute second derivative estimate for parabolic fit
             # d²C/dθ² ≈ 2 * C / θ²  (approximate)
             if abs(theta_trial) > 1e-10:
@@ -831,7 +763,7 @@ class CoSMoSSearch:
             if abs(theta_opt) < 1e-3:
                 #print("  -> Rotation angle too small, converged")
                 break  # Converged
-        
+
         N = N * norm_ini
         if self.debug:
             print(f"Dimer rotation completed after {rotation_iter+1} iterations\n")
@@ -839,31 +771,8 @@ class CoSMoSSearch:
             for i in range(self.n_atoms):
                 ns_mag = np.linalg.norm(N[3*i:3*i+3])
                 n_vec = N[3*i:3*i+3]
-                print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={ns_mag:.4f}")
+                if(self.mobile_mask[i]):
+                    print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={ns_mag:.4f}")
         
         print()
         return N   # Return optimized direction N^1 with original magnitude
-
-    def _add_gaussian(self, atoms, direction):
-        """
-        Generate new Gaussian potential parameters, according to the definition in the paper
-        
-        Parameters:
-            atoms: Current atomic structure
-            direction: Gaussian potential direction vector (already scaled by sqrt(n_mobile))
-            
-        Returns:
-            tuple: (d, R1, w) - contains direction vector, reference position and height parameters
-        """
-        # Use direction as-is (already properly scaled)
-        # DO NOT normalize - direction should preserve sqrt(n_mobile) scaling for proper projection
-        d = direction.copy()
-        
-        # Use current atomic position as reference position R1
-        R1 = atoms.positions.copy()
-        
-        # Adjust Gaussian potential height according to the climbing phase
-        w = self.w
-        
-        return (d, R1, w)
-    

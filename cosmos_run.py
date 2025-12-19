@@ -13,7 +13,7 @@ import numpy as np
 from ase.io import read
 from cosmos_search import CoSMoSSearch
 from cosmos_utils import load_potential, get_version_info, \
-                         get_mobility_atoms, infer_geometry_type
+                         get_mobile_atoms, infer_geometry_type
 
 class TeeLogger:
     """Redirect print output to both console and log file"""
@@ -127,7 +127,7 @@ def main() -> None:
     else:
         atomic_energy_calculator = None
                   
-    random_direction={'mode': rd_mode, 'element_weights': element_weights, 'atomic_energy_calculator': atomic_energy_calculator}
+    random_direction={'mode': rd_mode, 'element_weights': element_weights}
 
     # 6. Get Climbing configuration (optional)
     climb_config = config.get('climbing',{})
@@ -142,34 +142,36 @@ def main() -> None:
     fmax = optimizer_config.get('fmax', 0.05)
     optimizer={'max_steps': max_steps, 'fmax': fmax}
 
-    # 8. Get Mobility Control configuration and normalize to internal format (optional)
-    raw_mc = config.get('mobility_control', {})
-    mobility_mode   = raw_mc.get('mode', 'all')
-    mobility_region = None
+    # 8. Get Mobile Control configuration and normalize to internal format (optional)
+    raw_mc = config.get('mobile_control', {})
+    mobile_mode   = raw_mc.get('mode', 'all')
+    mobile_region = None
     wall_strength   = raw_mc.get('wall_strength', 10.0)
     wall_offset     = raw_mc.get('wall_offset', 2.0)
 
-    if mobility_mode == 'all':
+    if mobile_mode == 'all':
         mobile_atoms = np.arange(len(atoms), dtype=int).tolist()
 
-    elif mobility_mode == 'indices_free':
+    elif mobile_mode == 'indices_free':
         mobile_atoms = np.array(raw_mc.get('indices_free', []), dtype=int).tolist()
 
-    elif mobility_mode == 'indices_fix':
+    elif mobile_mode == 'indices_fix':
         fixed = np.array(raw_mc.get('indices_fix', []), dtype=int)
         all_idx = np.arange(len(atoms), dtype=int)
         mobile_atoms = np.setdiff1d(all_idx, fixed, assume_unique=False).tolist()
 
-    elif mobility_mode == 'region':
+    elif mobile_mode == 'region':
         region_type = raw_mc.get('region_type')
         if not region_type:
-            raise ValueError("mobility_control mode 'region' requires 'region_type' to be specified")
+            raise ValueError("mobile_control mode 'region' requires 'region_type' to be specified")
         if region_type == 'sphere':
             center = raw_mc.get('center')
             radius = raw_mc.get('radius')
             if center is None or radius is None:
                 raise ValueError("region_type 'sphere' requires 'center' and 'radius' to be specified")
-            mobility_region = {
+            if center == "center".lower():
+                center = atoms.get_center_of_mass()
+            mobile_region = {
                 'type': 'sphere',
                 'center': np.array(center).tolist(),
                 'radius': radius,
@@ -181,7 +183,7 @@ def main() -> None:
             max_dist = raw_mc.get('max_dist')
             if origin is None or normal is None or min_dist is None or max_dist is None:
                 raise ValueError("region_type 'slab' requires 'origin', 'normal', 'min_dist', and 'max_dist' to be specified")
-            mobility_region = {
+            mobile_region = {
                 'type': 'slab',
                 'origin': np.array(origin).tolist(),
                 'normal': np.array(normal).tolist(),
@@ -193,7 +195,7 @@ def main() -> None:
             threshold = raw_mc.get('threshold')
             if axis is None or threshold is None:
                 raise ValueError(f"region_type '{region_type}' requires 'axis' and 'threshold' to be specified")
-            mobility_region = {
+            mobile_region = {
                 'type': region_type,
                 'axis': axis,
                 'threshold': threshold,
@@ -201,14 +203,14 @@ def main() -> None:
         else:
             raise ValueError(f"Unknown region_type: {region_type}.\n Valid options are 'sphere', 'slab', 'lower', and 'upper'.")
         
-        mobile_atoms = get_mobility_atoms(atoms, mobility_region)  # Calculate mobile_atoms from mobility_region
+        mobile_atoms = get_mobile_atoms(atoms, mobile_region)  # Calculate mobile_atoms from mobile_region
 
     else:
-        raise ValueError(f"Unknown mobility_control mode: {mobility_mode}")
+        raise ValueError(f"Unknown mobile_control mode: {mobile_mode}")
         
-    mobility_control = {      # Construct unified mobility_control_param
+    mobile_control = {      # Construct unified mobile_control_param
         'mobile_atoms': mobile_atoms,
-        'mobility_region': mobility_region,
+        'mobile_region': mobile_region,
         'wall_strength': wall_strength,
         'wall_offset': wall_offset,    }
     
@@ -253,14 +255,14 @@ def main() -> None:
 
     if element_weights:  # Empty dict evaluates to False
         print(f'  Element weights  : {element_weights}')
-    if mobility_mode != 'all':
-        print(f'  Mobility mode    : {mobility_mode}')
+    if mobile_mode != 'all':
+        print(f'  Mobile mode    : {mobile_mode}')
         print(f'  Mobile atoms     : {mobile_atoms}')       
-        print(f'  Mobility region  : {mobility_region}')         
+        print(f'  Mobile region  : {mobile_region}')         
         print(f'  Wall strength    : {wall_strength}')
         print(f'  Wall offset      : {wall_offset}')
     else:
-        print('  Mobility control : None')
+        print('  Mobile control : None')
     print(f'\nOutput information:')
     print(f'  Output dir       : {output_dir}')
     print(f'  Debug mode       : {debug_mode}')
@@ -274,11 +276,12 @@ def main() -> None:
         task=task,
         structure_info=structure_info,
         calculator=calculator,
+        atomic_calculator=atomic_energy_calculator,
         monte_carlo=monte_carlo,
         random_direction=random_direction,
         climbing=climbing,
         optimizer=optimizer,
-        mobility_control=mobility_control,
+        mobile_control=mobile_control,
         output_dir=output_dir,
         debug=debug_mode,
     )

@@ -1,2 +1,0 @@
-[console_scripts]
-cosmos = cosmos_run:main

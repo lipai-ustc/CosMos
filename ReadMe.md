@@ -93,13 +93,15 @@ Practical recommendations:
 - **1D wire**: The wire should extend along one axis, while its cross-section is centered in the box.
 - **2D slab**: The slab should be centered along the vacuum direction.
 
-If the structure is not centered, CoSMoS may choose inappropriate settings for mobility control and vacuum-axis handling.
+If the structure is not centered, CoSMoS may choose inappropriate settings for mobile control and vacuum-axis handling.
 
 ### input.json Configuration
 
 #### System and Potential
 - `system`: System information
   - `name`: System name (optional)
+  - `task`: Task type - `"global_search"` or `"structure_sampling"` (required)
+  - `structure`: Path to initial structure file (optional, default: `"init.xyz"`)
 
 - `potential`: Potential settings (optional - defaults to NequIP from NEQUIP_MODEL environment variable)
   - `type`: Potential type (nequip/eam/chgnet/deepmd/fairchem/vasp/lammps/python)
@@ -125,18 +127,22 @@ export NEQUIP_MODEL=/path/to/deployed_model.pth
 cosmos
 ```
 
-**Atomic Energy Fallback (for atomic-mode random directions):**
-When using `random_direction_mode: "atomic"` or `"atomic_plus_nl"`, per-atom energies are required:
-1. **Primary calculator**: Uses native `get_potential_energies()` if supported (NequIP, custom calculators)
-2. **DeepMD**: Automatically uses custom wrapper `DeepMDCalculatorWithAtomicEnergy`
-3. **NequIP fallback**: If primary fails and `nequip_fallback` is configured, uses NequIP for atomic energies
-4. **Uniform distribution**: Last resort if all methods fail (equal weighting for all atoms)
+**Atomic Energy Calculator (for atomic-mode random directions):**
+When using `random_direction.mode: "atomic"` or `"atomic_plus_nl"`, per-atom energies are required:
+1. **Specified calculator**: If `atomic_energy_calculator` is configured in the `random_direction` section, uses that calculator
+2. **Primary calculator fallback**: If not specified, uses the main potential calculator
+3. **DeepMD**: Automatically uses custom wrapper with per-atom energy support
+4. **Error handling**: Raises an error if the calculator does not support `get_potential_energies()`
 
-Optional NequIP fallback configuration:
+Example atomic energy calculator configuration:
 ```json
-"nequip_fallback": {
-  "model": "/path/to/nequip_fallback.pth",
-  "device": "cpu"
+"random_direction": {
+  "mode": "atomic_plus_nl",
+  "atomic_energy_calculator": {
+    "type": "nequip",
+    "model": "/path/to/atomic_energy_model.pth",
+    "device": "cpu"
+  }
 }
 ```
 
@@ -232,26 +238,35 @@ Requires a `calculator.py` file in the working directory.
 
 #### Monte Carlo Layer
 - `monte_carlo`: Monte Carlo parameters
-  - `steps`: Total number of MC steps (default: 100)
-  - `temperature`: Temperature for Metropolis criterion in K (default: 300)
+  - `steps`: Total number of MC steps (required)
+  - `temperature`: Temperature for Metropolis criterion in K (required)
 
 #### Climbing Layer
 - `climbing`: Climbing phase parameters
-  - `gaussian_height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.1)
+  - `gaussian_height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.2)
   - `gaussian_width`: Width of Gaussian potentials in Å (ds parameter, default: 0.2)
-  - `max_gaussians`: Maximum number of Gaussians per climbing (H parameter, default: 14)
-  - `random_direction_mode`: Method for generating random search directions (default: "atomic_plus_nl")
-    - `"base"` or `1`: Use uniform random vectors `N(0, base_scale, 3)` for all mobile atoms
-    - `"atomic"` or `2`: Use energy-weighted random vectors `N(0, atomic_scale, 3)` based on per-atom energies
-    - `"base_plus_nl"` or `3`: Combine uniform random with local rigid movement (Nl)
-    - `"atomic_plus_nl"` or `4`: Combine energy-weighted random with local rigid movement (Nl) [default]
+  - `max_gaussians`: Maximum number of Gaussians per climbing (H parameter, default: 20)
+
+#### Optimizer Layer
+- `optimizer`: Local optimization settings
+  - `max_steps`: Maximum optimization steps (default: 500)
+  - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
+
+#### Random Direction Layer
+- `random_direction`: Random direction generation parameters (optional)
+  - `mode`: Method for generating random search directions (default: `"base_plus_nl"`)
+    - `"base"`: Use uniform random vectors for all mobile atoms
+    - `"atomic"`: Use energy-weighted random vectors based on per-atom energies
+    - `"base_plus_nl"`: Combine uniform random with local rigid movement (Nl) [default]
+    - `"atomic_plus_nl"`: Combine energy-weighted random with local rigid movement (Nl)
     - `"python"`: Use custom user-defined function (see below)
-  - `optimizer`: Local optimization settings
-    - `max_steps`: Maximum optimization steps (default: 500)
-    - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
+  - `element_weights`: Optional dict mapping element symbols to weight factors (e.g., `{"Cu": 1.5, "Al": 1.0}`)
+  - `atomic_energy_calculator`: Calculator configuration for per-atom energies (only needed for `"atomic"` or `"atomic_plus_nl"` modes)
+    - If not specified, uses the main potential calculator
+    - Same format as `potential` section (with `type`, `model`, etc.)
 
 ##### Custom Random Direction Generation
-When `random_direction_mode` is set to `"python"`, you can provide your own random direction generation function:
+When `random_direction.mode` is set to `"python"`, you can provide your own random direction generation function:
 
 1. Create a file named `generate_random_direction.py` in your working directory
 2. Define a function with this signature:
@@ -269,6 +284,8 @@ def generate_random_direction(atoms: Atoms) -> np.ndarray:
     Returns:
         N: 1D numpy array of size (3*n_atoms,) representing the direction vector
            Format: [x0, y0, z0, x1, y1, z1, ..., xn, yn, zn]
+           Note: The vector will be automatically scaled by sqrt(N_mobile) to preserve
+                 displacement magnitude in large systems
     """
     n_atoms = len(atoms)
     N = np.random.randn(3 * n_atoms)  # Your custom logic here
@@ -277,26 +294,77 @@ def generate_random_direction(atoms: Atoms) -> np.ndarray:
 
 3. Set in `input.json`:
 ```json
-"climbing": {
-  "random_direction_mode": "python",
-  ...
+"random_direction": {
+  "mode": "python"
 }
 ```
 
 The function receives the current atomic structure and must return a flattened direction vector. You have full access to atomic positions, chemical symbols, energies, and any other ASE Atoms attributes to implement custom logic.
 
-#### Mobility Control Layer (Optional)
-The mobility control feature allows you to constrain which atoms can move during optimization. **By default, all atoms are mobile.**
+##### Complete Configuration Example
+Here is a comprehensive example showing all major configuration options:
+
+```json
+{
+  "system": {
+    "name": "AlCu_alloy",
+    "task": "global_search",
+    "structure": "init.xyz"
+  },
+  "potential": {
+    "type": "nequip",
+    "model": "deployed_model.pth",
+    "device": "cpu"
+  },
+  "monte_carlo": {
+    "steps": 100,
+    "temperature": 300
+  },
+  "climbing": {
+    "gaussian_height": 0.2,
+    "gaussian_width": 0.2,
+    "max_gaussians": 20
+  },
+  "optimizer": {
+    "max_steps": 500,
+    "fmax": 0.05
+  },
+  "random_direction": {
+    "mode": "atomic_plus_nl",
+    "element_weights": {"Cu": 1.5, "Al": 1.0},
+    "atomic_energy_calculator": {
+      "type": "nequip",
+      "model": "atomic_energy_model.pth",
+      "device": "cpu"
+    }
+  },
+  "mobile_control": {
+    "mode": "region",
+    "region_type": "sphere",
+    "center": [5.0, 5.0, 5.0],
+    "radius": 10.0,
+    "wall_strength": 10.0,
+    "wall_offset": 2.0
+  },
+  "output": {
+    "directory": "cosmos_output"
+  },
+  "debug": false
+}
+```
+
+#### Mobile Control Layer (Optional)
+The mobile control feature allows you to constrain which atoms can move during optimization. **By default, all atoms are mobile.**
 
 **Mode 1: All atoms mobile (default)**
 ```json
-"mobility_control": null
+"mobile_control": null
 ```
-Or simply omit the `mobility_control` section entirely.
+Or simply omit the `mobile_control` section entirely.
 
 **Mode 2a: Control by mobile atom indices (indices_free)**
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "indices_free",
   "indices_free": [10, 20, 25],
   "wall_strength": 10.0,
@@ -308,7 +376,7 @@ Or simply omit the `mobility_control` section entirely.
 
 **Mode 2b: Control by fixed atom indices (indices_fix)**
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "indices_fix",
   "indices_fix": [0, 1, 2],
   "wall_strength": 10.0,
@@ -322,7 +390,7 @@ Or simply omit the `mobility_control` section entirely.
 
 *Sphere region:*
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "sphere",
   "center": [5.0, 5.0, 5.0],
@@ -340,7 +408,7 @@ Or simply omit the `mobility_control` section entirely.
 
 *Slab region (between two parallel planes):*
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "slab",
   "origin": [0.0, 0.0, 0.0],
@@ -359,7 +427,7 @@ Or simply omit the `mobility_control` section entirely.
 
 *Lower region (below threshold along an axis):*
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "lower",
   "axis": "z",
@@ -374,7 +442,7 @@ Or simply omit the `mobility_control` section entirely.
 
 *Upper region (above threshold along an axis):*
 ```json
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "upper",
   "axis": "z",
@@ -388,24 +456,25 @@ Or simply omit the `mobility_control` section entirely.
 - `threshold`: Threshold value in Å (atoms with axis coordinate ≥ threshold are mobile)
 
 **Wall Potential:**
-When using mobility control with `wall_strength > 0`, a quadratic repulsive wall potential prevents mobile atoms from penetrating too deep into immobile regions:
+When using mobile control with `wall_strength > 0`, a quadratic repulsive wall potential prevents mobile atoms from penetrating too deep into immobile regions:
 - Atoms can move up to `wall_offset` distance beyond the boundary without penalty
 - Beyond that: `V_wall = 0.5 × wall_strength × overshoot²`
 - This provides a soft boundary while maintaining flexibility
 
-#### Output
+#### Output and Debugging
 - `output`: Output settings
-  - `directory`: Output directory name (default: 'cosmos_output')
-  - `debug`: Enable debug mode for detailed logging (default: false)
-    - When `true`: Logs step-by-step energy components (base, Gaussian bias, wall) during optimization to `cosmos_log.txt`
-    - When `false`: Only logs final results and major events
+  - `directory`: Output directory name (default: `"cosmos_output"`)
+
+- `debug`: Enable debug mode for detailed logging (default: `false`, top-level parameter)
+  - When `true`: Logs step-by-step energy components (base, Gaussian bias, wall) during optimization to `cosmos_log.txt`
+  - When `false`: Only logs final results and major events
 
 **Debug Mode Example:**
 ```json
 "output": {
-  "directory": "cosmos_output",
-  "debug": true
-}
+  "directory": "cosmos_output"
+},
+"debug": true
 ```
 
 In debug mode, the log file will contain detailed information for each optimization step:
@@ -424,7 +493,7 @@ Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV,
 | `H` | Number of Gaussian potentials | 14 |
 | `w` | Gaussian potential height (eV) | 0.1 |
 | `temperature` | Temperature (K) | 300 |
-| `mobility_control` | Mobility control configuration (dict or None) | None (all mobile) |
+| `mobile_control` | Mobile control configuration (dict or None) | None (all mobile) |
 
 ## Examples
 Example directories are provided in the `examples/` folder:

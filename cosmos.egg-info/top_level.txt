@@ -1,3 +1,0 @@
-cosmos_run
-cosmos_search
-cosmos_utils

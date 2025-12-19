@@ -1,13 +1,11 @@
 import os
 import platform
-from typing import Dict, Any, Tuple, List, Optional
+from typing import Tuple, List, Optional
 from datetime import datetime
 import multiprocessing
 import numpy as np
 from ase import Atoms
-from ase.io import read
 from ase.calculators.calculator import Calculator, all_changes
-from dscribe.descriptors import SOAP 
 
 def get_version_info():
     # Get cosmos version
@@ -67,10 +65,12 @@ def load_potential(potential_config, custom_atomic=False):
     except KeyError:
         raise ValueError("Potential configuration missing 'type' key")
     
+    # Get current working directory to resolve relative paths
+    cwd = os.getcwd()
+    
     if pot_type == 'python':
         # Load custom calculator from calculator.py in current working directory
         import sys
-        import os
         cwd = os.getcwd()
         calc_file = os.path.join(cwd, 'calculator.py')
         if not os.path.exists(calc_file):
@@ -105,6 +105,8 @@ def load_potential(potential_config, custom_atomic=False):
     elif pot_type == 'eam':
         from ase.calculators.eam import EAM
         model_path = potential_config.get('model')
+        if model_path and not os.path.isabs(model_path):
+            model_path = os.path.join(cwd, model_path)
         return EAM(potential=model_path)
     elif pot_type == 'chgnet':
         from chgnet.model import CHGNet
@@ -112,17 +114,24 @@ def load_potential(potential_config, custom_atomic=False):
         if model_name == 'pretrained':
             model = CHGNet.load()
         else:
+            if not os.path.isabs(model_name):
+                model_name = os.path.join(cwd, model_name)
             model = CHGNet.load(model_name)
         return model.get_calculator()
     elif pot_type == 'deepmd':
+        model_path = potential_config.get('model')
+        if model_path and not os.path.isabs(model_path):
+            model_path = os.path.join(cwd, model_path)
         if custom_atomic:    # custom 
-            return DeepMDCalculatorWithAtomicEnergy(model=potential_config.get('model'))
+            return DeepMDCalculatorWithAtomicEnergy(model=model_path)
         else:    
             from deepmd.calculator import DP
-            return DP(model=potential_config.get('model'))
+            return DP(model=model_path)
     elif pot_type == 'nep':
         from calorine.calculators import CPUNEP
         model_path = potential_config.get('model')
+        if model_path and not os.path.isabs(model_path):
+            model_path = os.path.join(cwd, model_path)
         return CPUNEP(model_path)
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
@@ -133,6 +142,8 @@ def load_potential(potential_config, custom_atomic=False):
         from fairchem.core import pretrained_mlip, FAIRChemCalculator
         # Parse FAIRChem configuration
         model_path = potential_config.get('model', 'EquiformerV2-31M-S2EF-OC20-All+MD')
+        if model_path != 'EquiformerV2-31M-S2EF-OC20-All+MD' and not os.path.isabs(model_path):
+            model_path = os.path.join(cwd, model_path)
         device = potential_config.get('device', 'cpu')
         task_name = potential_config.get('task_name', 'oc20')
         # Load pretrained model
@@ -142,6 +153,8 @@ def load_potential(potential_config, custom_atomic=False):
     elif pot_type == 'nequip':
         from nequip.ase import NequIPCalculator
         model_path = potential_config.get('model')
+        if model_path and not os.path.isabs(model_path):
+            model_path = os.path.join(cwd, model_path)
         device = potential_config.get('device', 'cpu')
         return NequIPCalculator.from_compiled_model(compile_path=model_path, device=device)
     elif pot_type == 'vasp':
@@ -149,7 +162,6 @@ def load_potential(potential_config, custom_atomic=False):
         incar_file = potential_config.get('model', 'INCAR')
         # Try to read INCAR parameters if file exists
         vasp_params = {}
-        import os
         if os.path.exists(incar_file):
             # Parse INCAR file to extract parameters
             with open(incar_file, 'r') as f:
@@ -257,7 +269,7 @@ def is_duplicate_by_desc_and_energy(new_atoms: Atoms,
         return abs(energy - pool_energies[best_idx]) <= energy_tol
     return True
 
-# --- Geometry and Mobility Utilities ---
+# --- Geometry and Mobile Utilities ---
 
 def infer_geometry_type(atoms: Atoms, vacuum_threshold_angstrom: float = 3.0):
     """
@@ -287,122 +299,44 @@ def infer_geometry_type(atoms: Atoms, vacuum_threshold_angstrom: float = 3.0):
         geom = 'bulk'
     return geom, axes
 
-
-def get_mobility_atoms(atoms: Atoms, mobility_region) -> np.ndarray:
+def get_mobile_atoms(atoms: Atoms, mobile_region) -> np.ndarray:
     """
     Compute boolean mask for mobile atoms.
     True = mobile, False = immobile
     """
     n_atoms = len(atoms)
-    if mobility_region is None:
+    if mobile_region is None:
         return np.ones(n_atoms, dtype=bool)
 
     positions = atoms.get_positions()
     mask = np.zeros(n_atoms, dtype=bool)
-    if mobility_region['type'] == 'sphere':
-        center = np.array(mobility_region['center'])
-        radius = mobility_region['radius']
+    if mobile_region['type'] == 'sphere':
+        center = np.array(mobile_region['center'])
+        radius = mobile_region['radius']
         distances = np.linalg.norm(positions - center, axis=1)
         mask = distances <= radius
-    elif mobility_region['type'] == 'slab':
-        normal = np.array(mobility_region['normal'])
+    elif mobile_region['type'] == 'slab':
+        normal = np.array(mobile_region['normal'])
         normal = normal / (np.linalg.norm(normal) or 1.0)
-        origin = np.array(mobility_region['origin'])
-        min_dist = mobility_region['min_dist']
-        max_dist = mobility_region['max_dist']
+        origin = np.array(mobile_region['origin'])
+        min_dist = mobile_region['min_dist']
+        max_dist = mobile_region['max_dist']
         vectors = positions - origin
         distances = np.dot(vectors, normal)
         mask = (distances >= min_dist) & (distances <= max_dist)
-    elif mobility_region['type'] in ('lower', 'upper'):
-        axis = mobility_region['axis'].lower()
-        threshold = mobility_region['threshold']
+    elif mobile_region['type'] in ('lower', 'upper'):
+        axis = mobile_region['axis'].lower()
+        threshold = mobile_region['threshold']
         axis_map = {'x': 0, 'y': 1, 'z': 2}
         if axis not in axis_map:
             raise ValueError(f"Invalid axis '{axis}'. Must be 'x', 'y', or 'z'.")
         axis_index = axis_map[axis]
         coords = positions[:, axis_index]
-        if mobility_region['type'] == 'lower':
+        if mobile_region['type'] == 'lower':
             mask = coords <= threshold
-        elif mobility_region['type'] == 'upper':
+        elif mobile_region['type'] == 'upper':
             mask = coords >= threshold
     return np.where(mask)[0].tolist()
-
-
-def calculate_wall_potential(atoms: Atoms, mobility_region, wall_strength: float, wall_offset: float):
-    """
-    Calculate wall potential energy and forces for mobile atoms relative to mobility_region.
-    Returns (wall_energy, wall_forces_flat)
-    """
-    if wall_strength == 0 or mobility_region is None:
-        return 0.0, np.zeros(3 * len(atoms))
-    positions = atoms.get_positions()
-    n_atoms = len(atoms)
-    wall_energy = 0.0
-    wall_forces = np.zeros(3 * n_atoms)
-    mobile_mask = get_mobility_mask(atoms, None, mobility_region) if mobility_region else np.ones(n_atoms, dtype=bool)
-    if mobility_region['type'] == 'sphere':
-        center = np.array(mobility_region.get('center', [0, 0, 0]))
-        radius = mobility_region.get('radius', 0.0)
-        for i in range(n_atoms):
-            if not mobile_mask[i]:
-                continue
-            delta_r = positions[i] - center
-            dist = np.linalg.norm(delta_r)
-            if dist > radius + wall_offset:
-                overshoot = dist - radius - wall_offset
-                wall_energy += 0.5 * wall_strength * overshoot ** 2
-                direction = delta_r / dist if dist > 0 else np.zeros(3)
-                force = -wall_strength * overshoot * direction
-                wall_forces[3*i:3*i+3] = force
-    elif mobility_region['type'] == 'slab':
-        normal = np.array(mobility_region.get('normal', [0, 0, 1]))
-        normal = normal / (np.linalg.norm(normal) or 1.0)
-        origin = np.array(mobility_region.get('origin', [0, 0, 0]))
-        min_dist = mobility_region.get('min_dist', -5.0)
-        max_dist = mobility_region.get('max_dist', 5.0)
-        for i in range(n_atoms):
-            if not mobile_mask[i]:
-                continue
-            delta_r = positions[i] - origin
-            proj_dist = np.dot(delta_r, normal)
-            if proj_dist < min_dist - wall_offset:
-                overshoot = (min_dist - wall_offset) - proj_dist
-                wall_energy += 0.5 * wall_strength * overshoot ** 2
-                force = wall_strength * overshoot * normal
-                wall_forces[3*i:3*i+3] = force
-            elif proj_dist > max_dist + wall_offset:
-                overshoot = proj_dist - (max_dist + wall_offset)
-                wall_energy += 0.5 * wall_strength * overshoot ** 2
-                force = -wall_strength * overshoot * normal
-                wall_forces[3*i:3*i+3] = force
-    elif mobility_region['type'] in ('lower', 'upper'):
-        axis = mobility_region.get('axis', 'z').lower()
-        threshold = mobility_region.get('threshold', 0.0)
-        axis_map = {'x': 0, 'y': 1, 'z': 2}
-        axis_index = axis_map.get(axis, 2)
-        for i in range(n_atoms):
-            if not mobile_mask[i]:
-                continue
-            coord = positions[i, axis_index]
-            if mobility_region['type'] == 'lower':
-                # For lower: atoms with coord <= threshold are mobile
-                # Apply wall force if coord > threshold + wall_offset
-                if coord > threshold + wall_offset:
-                    overshoot = coord - (threshold + wall_offset)
-                    wall_energy += 0.5 * wall_strength * overshoot ** 2
-                    force_vec = np.zeros(3)
-                    force_vec[axis_index] = -wall_strength * overshoot
-                    wall_forces[3*i:3*i+3] = force_vec
-            else:  # upper
-                # For upper: atoms with coord >= threshold are mobile
-                # Apply wall force if coord < threshold - wall_offset
-                if coord < threshold - wall_offset:
-                    overshoot = (threshold - wall_offset) - coord
-                    wall_energy += 0.5 * wall_strength * overshoot ** 2
-                    force_vec = np.zeros(3)
-                    force_vec[axis_index] = wall_strength * overshoot
-                    wall_forces[3*i:3*i+3] = force_vec
-    return wall_energy, wall_forces
 
 def periodic_distance(
     atoms1: Atoms,
@@ -415,7 +349,7 @@ def periodic_distance(
     taking into account the minimum image convention (MIC).
 
     Optionally, if a reference direction vector N is provided (shape: (3, n_atoms)),
-    also compute the angle (in radians) between the actual displacement and N.
+    also compute the angle (in degrees) between the actual displacement and N.
 
     Requirements:
     - atoms1 and atoms2 must have the same number of atoms;
@@ -432,7 +366,7 @@ def periodic_distance(
     distance : float
         L2 norm of the MIC-corrected displacement vector (sqrt(sum |dr|^2)).
     angle : float or None
-        Angle in radians between the displacement vector and N (flattened to 3N-D),
+        Angle in degrees between the displacement vector and N (flattened to 3N-D),
         or None if N is not provided.
     """
     # Validate inputs
@@ -464,26 +398,21 @@ def periodic_distance(
     if N is None:
         return distance, None
 
-    # Validate N
-    n_atoms = len(atoms1)
-
     # Flatten both vectors into 3N-dimensional vectors for angle computation
     # Note: dr_cart is (n_atoms, 3) → reshape to (3*n_atoms,)
-    dr_flat = dr_cart.T.ravel()  # Equivalent to N.ravel() if N is (3, n)
-    N_flat = N
+    dr = dr_cart.flatten()
 
     # Normalize vectors (avoid division by zero)
-    norm_dr = np.linalg.norm(dr_flat)
-    norm_N = np.linalg.norm(N_flat)
+    norm_dr = np.linalg.norm(dr)
+    norm_N = np.linalg.norm(N)
 
     if norm_dr == 0 or norm_N == 0:
-        # Undefined angle if either vector is zero
-        angle = 0.0 if norm_dr == 0 and norm_N == 0 else np.pi / 2
+        raise ValueError("Both displacement vector dr and direction vector N must be non-zero.")
     else:
         # Clamp dot product to [-1, 1] to avoid numerical errors in arccos
-        cos_angle = np.dot(dr_flat, N_flat) / (norm_dr * norm_N)
+        cos_angle = np.dot(dr, N) / (norm_dr * norm_N)
         cos_angle = np.clip(cos_angle, -1.0, 1.0)
-        angle = np.arccos(cos_angle)
+        angle = np.rad2deg(np.arccos(cos_angle))
 
     return distance, angle    
 
