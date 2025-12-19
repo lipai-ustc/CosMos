@@ -1,0 +1,45 @@
+# log files
+*.log
+logs/
+*.out
+
+# Python env
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.ipynb_checkpoints/
+
+# config files
+.env
+.env.local
+.env.development
+secrets.json
+config/local_settings.py
+
+# IDE related files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+*.zip
+*.tar.gz
+*.h5
+*.pth
+*.pt
+*.model
+*.bin
+data/
+results/
+output/
+*.npy
+*.npz
