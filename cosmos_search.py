@@ -6,7 +6,6 @@ import numpy as np
 from ase.io import write as ase_write
 from ase.constraints import FixAtoms
 from ase.optimize import LBFGS
-from numpy.matlib import fmax
 from biased_calculator import BiasedCalculator
 from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance
 
@@ -105,7 +104,7 @@ class CoSMoSSearch:
         self._local_minimize(self.atoms)        
         self._add_to_pool(self.atoms)
 
-    def _local_minimize(self, atoms, calc=None):
+    def _local_minimize(self, atoms):
         """
         Perform local structure optimization using LBFGS algorithm
         Complies with CoSMoS algorithm documentation steps 4 and 6, using limited-memory BFGS optimizer for efficiency
@@ -115,13 +114,12 @@ class CoSMoSSearch:
             calc: Calculator for optimization, defaults to base_calc
             fmax: Convergence force threshold, defaults to class instance's fmax
         """
-        if calc is not None:
-            atoms.calc = calc
-        
+        if atoms.calc is None:
+            raise ValueError("Atoms object must have a calculator assigned.")
         # Use LBFGS optimizer with custom logging if debug mode
-        if self.debug and isinstance(calc, BiasedCalculator):
+        if self.debug and isinstance(atoms.calc, BiasedCalculator):    # mute
             # Debug mode: log energy components at each step
-            
+           
             class DebugLBFGS(LBFGS):
                 def __init__(self, atoms, parent_search, **kwargs):
                     super().__init__(atoms, **kwargs)
@@ -134,34 +132,32 @@ class CoSMoSSearch:
                     
                     # Log energy components
                     if hasattr(self.atoms.calc, 'results') and 'energy_components' in self.atoms.calc.results:
-                        E_base, E_bias, E_wall = self.atoms.calc.results['energy_components']
                         E_total = self.atoms.get_potential_energy()
                         forces = self.atoms.get_forces()
                         fmax_current = (forces**2).sum(axis=1).max()**0.5
-                        
-                        if self.debug:
-                            print(f"  Step {self.step_count}: E_total = {E_total:.6f} eV, "
-                                  f"E_base = {E_base:.6f} eV, E_bias = {E_bias:.6f} eV, E_wall = {E_wall:.6f} eV, "
-                                  f"fmax = {fmax_current:.6f} eV/Å")
+                        E_base, E_bias, E_wall = self.atoms.calc.results['energy_components']
+                                                
+                        print(f"  Step {self.step_count}: E_total = {E_total:.6f} eV, "
+                                f"E_base = {E_base:.6f} eV, E_bias = {E_bias:.6f} eV, E_wall = {E_wall:.6f} eV, "
+                                f"fmax = {fmax_current:.6f} eV/Å")
                     
                     return result
-            
+            print("Local minimization using LBFGS optimizer in debug mode")
             opt = DebugLBFGS(atoms, self, logfile=None)
         else:
             # Normal mode: no step-by-step logging
             opt = LBFGS(atoms, logfile=None)
-        
 
         if isinstance(atoms.calc, BiasedCalculator):
             atoms.get_potential_energy()
             print(f"Before opt  No.: {len(atoms.calc.gaussian_params)}  "
               f"E_base: {atoms.calc.results['E_base']:.3f} "
-              f"F_base: {np.linalg.norm(atoms.calc.results['F_base']):.3f}  "
+              f"F_base_max: {(atoms.calc.results['F_base']**2).sum(axis=1).max()**0.5:.3f}  "
               f"E_gauss: {atoms.calc.results['E_gaussian']:.3f}  "
-              f"F_gauss: {np.linalg.norm(atoms.calc.results['F_gaussian']):.3f}  "
+              f"F_gauss_max: {(atoms.calc.results['F_gaussian']**2).sum(axis=1).max()**0.5:.3f}  "
               f"E_wall: {atoms.calc.results['E_wall']:.3f}  "
-              f"F_wall: {np.linalg.norm(atoms.calc.results['F_wall']):.3f}  "
-              f"F_total: {np.linalg.norm(atoms.calc.results['forces']):.3f}  ")
+              f"F_wall_max: {(atoms.calc.results['F_wall']**2).sum(axis=1).max()**0.5:.3f}  "
+              f"F_total_max: {(atoms.get_forces()**2).sum(axis=1).max()**0.5:.3f}  ")
 
         opt.run(fmax=self.opt_fmax,steps=self.opt_max_steps)
        
@@ -169,13 +165,13 @@ class CoSMoSSearch:
         if isinstance(atoms.calc, BiasedCalculator):
             print(f"After opt   No.: {len(atoms.calc.gaussian_params)}  "
               f"E_base: {atoms.calc.results['E_base']:.3f} "
-              f"F_base: {np.linalg.norm(atoms.calc.results['F_base']):.3f}  "
+              f"F_base_max: {(atoms.calc.results['F_base']**2).sum(axis=1).max()**0.5:.3f}  "
               f"E_gauss: {atoms.calc.results['E_gaussian']:.3f}  "
-              f"F_gauss: {np.linalg.norm(atoms.calc.results['F_gaussian']):.3f}  "
+              f"F_gauss_max: {(atoms.calc.results['F_gaussian']**2).sum(axis=1).max()**0.5:.3f}  "
               f"E_wall: {atoms.calc.results['E_wall']:.3f}  "
-              f"F_wall: {np.linalg.norm(atoms.calc.results['F_wall']):.3f}  "
-              f"F_total: {np.linalg.norm(atoms.calc.results['forces']):.3f}  ")
-                      
+              f"F_wall_max: {(atoms.calc.results['F_wall']**2).sum(axis=1).max()**0.5:.3f}  "
+              f"F_total_max: {(atoms.calc.results['forces']**2).sum(axis=1).max()**0.5:.3f}  "
+              f"F_total_max: {(atoms.get_forces()**2).sum(axis=1).max()**0.5:.3f}  ")                      
 
     def _add_to_pool(self, atoms):
         """
@@ -257,7 +253,7 @@ class CoSMoSSearch:
         
         # Calculate scales using exp(E_atom)
         # Add small offset to avoid issues with very small energies
-        scales = 2 / (1 + np.exp(-4*normalized_energies))   # scales = 2*sigmoid(4*normalized_energies)
+        scales = 2 / (1 + np.exp(-4*normalized_energies))-1   # scales = 2*sigmoid(4*normalized_energies)
         # Set scales of masked (immobile) atoms to 0
         if self.mobile_mask is not None:
             scales[~self.mobile_mask] = 0.0
@@ -267,6 +263,7 @@ class CoSMoSSearch:
             if mean_scale > 0:
                 scales = scales / mean_scale
 
+        self._print_mobile(list1=scales,title1="scales",list2=atomic_energies,title2="energies",list3=normalized_energies,title3="normalized_energies")
         return scales
 
     def _generate_random_direction(self, atoms):
@@ -324,12 +321,13 @@ class CoSMoSSearch:
         Ns = Ns / np.linalg.norm(Ns)
         
         if self.debug:
-            print(f"|Ns|: {np.linalg.norm(Ns):.6f}")
+            print(f"|Ns|: {np.linalg.norm(Ns):.6f} with use_atomic={use_atomic} and include_nl={include_nl}")
             for i in range(n_atoms):
-                ns_mag = np.linalg.norm(Ns[3*i:3*i+3])
-                ns_vec = Ns[3*i:3*i+3]
-                if self.mobile_mask[i]:
-                    print(f"Atom {i:3d}: atom_scale={atom_scale:.3f}, Ns_i=[{ns_vec[0]:8.4f}, {ns_vec[1]:8.4f}, {ns_vec[2]:8.4f}], |Ns_i|={ns_mag:.4f}")
+                if i<10:
+                    ns_mag = np.linalg.norm(Ns[3*i:3*i+3])
+                    ns_vec = Ns[3*i:3*i+3]
+                    if self.mobile_mask[i]:
+                        print(f"Atom {i:3d}: atom_scale={atom_scale:.3f}, Ns_i=[{ns_vec[0]:8.4f}, {ns_vec[1]:8.4f}, {ns_vec[2]:8.4f}], |Ns_i|={ns_mag:.4f}")
 
         # Generate local rigid movement direction Nl (non-adjacent atom bonding pattern)
         Nl = np.zeros(3 * n_atoms)
@@ -364,7 +362,7 @@ class CoSMoSSearch:
                     try:
                         Nl = (Nl / np.linalg.norm(Nl))
                         if self.debug:
-                            print(f"Nl vector after normalization:\n|Nl|={np.linalg.norm(Nl):.6f}\n{Nl[3*i:3*i+3]}\n{Nl[3*j:3*j+3]}")
+                            print(f"Nl vector after normalization in include_nl:\n|Nl|={np.linalg.norm(Nl):.6f}\n{Nl[3*i:3*i+3]}\n{Nl[3*j:3*j+3]}")
                     except:
                         raise ValueError("Failed to normalize Nl vector")
                     selected_pair = (i, j)
@@ -382,7 +380,6 @@ class CoSMoSSearch:
 
         else:
             N = Ns
-        # introduce dimer method from ase
         
         # Normalize and scale by sqrt(n_mobile)
 
@@ -396,13 +393,13 @@ class CoSMoSSearch:
             # Debug output: show displacement statistics
             print(f"\n=== Random Direction Generation ===")
             print(f"Number of atoms: {n_atoms}, Mobile atoms: {n_mobile}")
-            print(f"Lambda: {lambda_param:.3f},  |N| : {np.linalg.norm(N):.3f}")
             print(f"Step size ds: {self.ds:.4f} Å")
-            
-            # Show selected atom pair for Nl
-            if selected_pair is not None:
-                i, j = selected_pair
-                print(f"\nSelected atom pair for Nl: atoms {i} and {j}, distance = {pair_distance:.3f} Å")
+            if include_nl:
+                print(f"Lambda: {lambda_param:.3f},  |N| : {np.linalg.norm(N):.3f}")
+                # Show selected atom pair for Nl
+                if selected_pair is not None:
+                    i, j = selected_pair
+                    print(f"\nSelected atom pair for Nl: atoms {i} and {j}, distance = {pair_distance:.3f} Å")
         
             # Show per-atom displacement magnitudes
             displacements = []
@@ -430,7 +427,7 @@ class CoSMoSSearch:
                 print(f"       Direction: [{vec[0]:7.3f}, {vec[1]:7.3f}, {vec[2]:7.3f}]")
             
             # Print detailed per-atom info (first 10 atoms)
-            print("\nPer-atom displacement (first 10 atoms):")
+            print("\nPer-atom displacement:")
             print("Atom | Status | |N_i| | ds*|N_i| (Å) | Direction")
             for i, mag, actual, status in displacements[:]:
                 vec = N[3*i:3*i+3]
@@ -538,10 +535,11 @@ class CoSMoSSearch:
             climb_atoms.calc=self.biased_calc
 
             gaussian_params = []
-            N = self._generate_random_direction(current_atoms)
+            N0 = self._generate_random_direction(current_atoms)
 
             for n in range(1, self.H + 1):
-                N = self._biased_dimer_rotation(climb_atoms, N)
+                #N = self._biased_dimer_rotation(climb_atoms, N0)
+                N=N0
                 base_atoms = climb_atoms.copy()
                 # CRITICAL: Move structure along direction N before adding bias potential
                 # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
@@ -571,7 +569,7 @@ class CoSMoSSearch:
                 distance_1_bas, angle_1_bas = periodic_distance(base_atoms, climb_atoms, N)
                 climb_info_file.write(f"{step} 1 {distance_1_org:.4f} {angle_1_org:.4f} {distance_1_bas:.4f} {angle_1_bas:.4f}\n")
                 print(f"{step} 1 {distance_1_org:.4f} {angle_1_org:.4f} {distance_1_bas:.4f} {angle_1_bas:.4f}\n")
-                                
+
                 climb_info_file.flush()
                 # Compute real energy
                 current_climb_energy = self._get_real_energy(climb_atoms)
@@ -658,7 +656,7 @@ class CoSMoSSearch:
                     shift[i] = 0.0
             atoms.set_positions(pos0 + shift)     
 
-    def _biased_dimer_rotation(self, atoms, initial_direction):
+    def _biased_dimer_rotation(self, atoms, N0):
         """
         Implement biased dimer rotation method according to SSW paper (Eq. 3-6)
         Uses proper dimer method to find the lowest curvature direction with bias potential
@@ -673,13 +671,13 @@ class CoSMoSSearch:
             Optimized direction N^1 (normalized)
         """
         # Normalize initial direction
-        norm_ini = np.linalg.norm(initial_direction)
-        N = initial_direction.copy() / norm_ini
+        norm_ini = np.linalg.norm(N0)
+        N = N0.copy() / norm_ini
               
         # Dimer parameters from SSW paper
         delta_R = 0.02  # Dimer separation (typical: 0.02 Å)
-        theta_trial = 0.5 * np.pi / 180.0  # Trial rotation angle (radians), ~0.5 degrees
-        max_rotations = 10  # Maximum number of rotations
+        theta_trial = 0.5 * np.pi / 180.0  # Trial rotation angle (radians), ~1 degrees
+        max_rotations = 100  # Maximum number of rotations
         f_rot_tol = 0.01  # Rotational force tolerance (eV/Å)
 
         # Current position (flattened)
@@ -688,6 +686,7 @@ class CoSMoSSearch:
         print(f"\n--- Dimer Rotation ---")
         print(f"Parameters: ΔR={delta_R:.5f} Å, θ_trial={np.degrees(theta_trial):.3f}°, max_iter={max_rotations}")
         
+        self.biased_calc.reset_quadra([1000,R0_flat,N0])  #a=10
         # Iteratively rotate dimer to find optimal direction
         for rotation_iter in range(max_rotations):
             # Calculate dimer images: R_1 = R_0 + N * ΔR (Eq. 3)
@@ -696,8 +695,10 @@ class CoSMoSSearch:
             # Compute forces at R_1 (on real PES)
             temp_atoms1 = atoms.copy()
             temp_atoms1.set_positions(R1_flat.reshape(-1, 3))
-            temp_atoms1.calc = self.base_calc
+            temp_atoms1.calc = self.biased_calc
+
             F1 = temp_atoms1.get_forces().flatten()
+            print("F_quadra:",self.biased_calc.results['F_quadra'].max(),self.biased_calc.results['F_quadra'].min())
             
             # Compute curvature C = (F_0 - F_1) · N / ΔR (Eq. 4)
             # Note: F_0 can be extrapolated from F_1 for efficiency
@@ -735,7 +736,7 @@ class CoSMoSSearch:
             R1_trial_flat = R0_flat + N_trial * delta_R
             temp_atoms_trial = atoms.copy()
             temp_atoms_trial.set_positions(R1_trial_flat.reshape(-1, 3))
-            temp_atoms_trial.calc = self.base_calc
+            temp_atoms_trial.calc = self.biased_calc
             F1_trial = temp_atoms_trial.get_forces().flatten()
             F0_trial_approx = -F1_trial
             C_trial = np.dot((F0_trial_approx - F1_trial), N_trial) / delta_R
@@ -770,10 +771,27 @@ class CoSMoSSearch:
             print(f"Dimer rotation completed after {rotation_iter+1} iterations\n")
             print(f'N vector after rotation:\n|N|={np.linalg.norm(N):.6f}')
             for i in range(self.n_atoms):
-                ns_mag = np.linalg.norm(N[3*i:3*i+3])
-                n_vec = N[3*i:3*i+3]
-                if(self.mobile_mask[i]):
-                    print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={ns_mag:.4f}")
+                if i<10:
+                    ns_mag = np.linalg.norm(N[3*i:3*i+3])
+                    n_vec = N[3*i:3*i+3]
+                    if(self.mobile_mask[i]):
+                        print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={ns_mag:.4f}")
         
         print()
         return N   # Return optimized direction N^1 with original magnitude
+
+    def _print_mobile(self,list1,list2=None, list3=None,title1="",title2="",title3=""):
+        if len(list1)!=self.n_atoms:
+            raise ValueError("list1 must have n_atoms elements")
+        if list2 is not None and len(list2)!=self.n_atoms:
+            raise ValueError("list2 must have n_atoms elements")
+        if list3 is not None and len(list3)!=self.n_atoms:
+            raise ValueError("list3 must have n_atoms elements")
+        for i in np.arange(self.n_atoms):
+            if(self.mobile_mask[i]):
+                info=f"AtomID: {i:3d} | {title1} = {list1[i]}"
+                if list2 is not None:
+                    info+=f" | {title2} = {list2[i]}"
+                if list3 is not None:
+                    info+=f" | {title3} = {list3[i]}"
+                print(info) 

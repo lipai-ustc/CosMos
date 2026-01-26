@@ -14,57 +14,81 @@ class BiasedCalculator(Calculator):
         super().__init__()
         self.base_calc = base_calculator  # Original potential energy calculator
         self.mobile_mask = mobile_mask  # Boolean mask for mobile atoms
-        self.gaussian_params = None  # List of Gaussian parameters, each containing (d, R1, w)
         self.ds = ds  # Step size parameter, used for Gaussian potential width
         self.mobile_region = mobile_region  # Region for mobile atoms
         self.wall_strength = wall_strength  # Strength of wall potential
         self.wall_offset = wall_offset  # Offset of wall potential
+        self.flag="init"
 
     def reset_gaussians(self, gaussian_params):
         """reset gaussian params"""
         self.gaussian_params = gaussian_params
-        self.reset()  # reset calculator
+        self.flag="gaussian"
+
+    def reset_quadra(self,quadra_params):
+        """reset gaussian params"""
+        self.quadra_params=quadra_params
+        self.flag="quadra"
 
     def calculate(self, atoms=None, properties=['energy','forces'], system_changes=all_changes):
         super().calculate(atoms, properties, system_changes)
+
+        self.base_calc.calculate(atoms, properties, system_changes)
+        current_flag = self.flag
         
         # Get original energy and forces
-        self.base_calc.calculate(atoms,properties,system_changes)
+        self.base_calc.calculate(atoms, properties, system_changes)
         E_base = self.base_calc.results['energy']
         F_base = self.base_calc.results['forces'].flatten()  # (3N,)
-
-        # Get gaussian potential energy and forces
-        R = atoms.positions.flatten()  # (3N,)        
-        E_gaussian = 0.0
-        F_gaussian = np.zeros_like(R)  # (3N,)
-
-        for g_param in self.gaussian_params:
-            # g_param should be a tuple or list containing (d, R1, w)
-            try:
-                d, R1, w = g_param
-            except ValueError:
-                raise ValueError(f"Invalid Gaussian parameter format: {g_param}")
-            dr = R - R1
-            # Calculate projection: (R - R1)·Nn
-            proj = np.dot(dr, d)
-            # Gaussian width uses self.ds (step size); equation (6) in the paper
-            E_gaussian += w * np.exp(-(proj**2) / (2 * self.ds**2))
-            F_gaussian += w * np.exp(-(proj**2) / (2 * self.ds**2)) * (proj / self.ds**2) * d
-
-        # Total energy and forces are original values plus bias and wall potential contributions
         # Calculate wall potential energy and forces for mobile atoms relative to mobile_region
         E_wall, F_wall = self._calculate_wall_potential(atoms)
 
+        # Get gaussian potential energy and forces
+        R = atoms.positions.flatten()  # (3N,)
+        E_bias = 0.0
+        F_bias = np.zeros_like(R)  # (3N,)
+        if current_flag=="gaussian":
+            for g_param in self.gaussian_params:
+                # g_param should be a tuple or list containing (d, R1, w)
+                try:
+                    d, R1, w = g_param
+                except ValueError:
+                    raise ValueError(f"Invalid Gaussian parameter format: {g_param}")
+                dr = R - R1
+                # Calculate projection: (R - R1)·Nn
+                proj = np.dot(dr, d)
+                # Gaussian width uses self.ds (step size); equation (6) in the paper
+                E_bias += w * np.exp(-(proj**2) / (2 * self.ds**2))
+                F_bias += w * np.exp(-(proj**2) / (2 * self.ds**2)) * (proj / self.ds**2) * d
+
+            self.results['E_gaussian'] = E_bias
+            self.results['F_gaussian'] = F_bias.reshape((-1, 3))
+
+        elif current_flag=="quadra":
+            try:
+                a, R0, Ni0= self.quadra_params
+            except ValueError:
+                raise ValueError(f"Invalid Quadratic parameter format: {self.quadra_params}")
+            dr = R - R0
+            # Calculate projection: (R - d)·(a·Nn + b·Nn)
+            proj = np.dot(dr, Ni0)
+            # Quadratic width uses self.ds (step size); equation (7) in the paper
+            E_bias = -(a/2) * proj**2
+            F_bias = -(a/2) * proj * Ni0
+
+            self.results['E_quadra'] = E_bias
+            self.results['F_quadra'] = F_bias.reshape((-1, 3))
+
         self.results['E_base'] = E_base
-        self.results['E_gaussian'] = E_gaussian
+        self.results['E_bias'] = E_bias
         self.results['E_wall'] = E_wall
         self.results['F_base'] = F_base.reshape((-1, 3))
-        self.results['F_gaussian'] = F_gaussian.reshape((-1, 3))
+        self.results['F_bias'] = F_bias.reshape((-1, 3))
         self.results['F_wall'] = F_wall.reshape((-1, 3))
 
-        self.results['energy'] = E_base + E_gaussian + E_wall
-        self.results['forces'] = (F_base + F_gaussian + F_wall).reshape((-1, 3))
-        self.results['energy_components'] = (E_base, E_gaussian, E_wall)
+        self.results['energy'] = E_base + E_bias + E_wall
+        self.results['forces'] = (F_base + F_bias + F_wall).reshape((-1, 3))
+        self.results['energy_components'] = (E_base, E_bias, E_wall)
 
     def _calculate_wall_potential(self, atoms: Atoms):
         """
@@ -141,3 +165,4 @@ class BiasedCalculator(Calculator):
                         force_vec[axis_index] = self.wall_strength * overshoot
                         wall_forces[3*i:3*i+3] = force_vec
         return wall_energy, wall_forces
+

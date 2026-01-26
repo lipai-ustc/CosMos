@@ -1,0 +1,31 @@
+data_image0
+_chemical_formula_structural       MgAlTi4
+_chemical_formula_sum              "Mg1 Al1 Ti4"
+_cell_length_a       5.108226641558228
+_cell_length_b       6.312119227249151
+_cell_length_c       7.090217718122301
+_cell_angle_alpha    107.2086113875242
+_cell_angle_beta     51.963585680635376
+_cell_angle_gamma    89.40388395486114
+
+_space_group_name_H-M_alt    "P 1"
+_space_group_IT_number       1
+
+loop_
+  _space_group_symop_operation_xyz
+  'x, y, z'
+
+loop_
+  _atom_site_type_symbol
+  _atom_site_label
+  _atom_site_symmetry_multiplicity
+  _atom_site_fract_x
+  _atom_site_fract_y
+  _atom_site_fract_z
+  _atom_site_occupancy
+  Mg  Mg1       1.0  0.6315033082890171  0.728861668917336  0.9792265157154351  1.0000
+  Al  Al1       1.0  0.6600542047347603  0.2136350882430556  0.9467736101014465  1.0000
+  Ti  Ti1       1.0  0.20471169227619157  0.24307486705323153  0.46978783941707913  1.0000
+  Ti  Ti2       1.0  0.06959947567039924  0.10015406355735099  0.051352859316228794  1.0000
+  Ti  Ti3       1.0  0.11045000843976693  0.4002529290147038  0.006319431971461308  1.0000
+  Ti  Ti4       1.0  0.3224035490091063  0.8911354983336857  0.5801920618008843  1.0000
