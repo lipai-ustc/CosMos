@@ -21,7 +21,7 @@
   },
   "optimizer": {
     "max_steps": 100,
-    "fmax": 0.10
+    "fmax": 0.05
   },
   "mobile_control": {
     "mode": "region",

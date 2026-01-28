@@ -9,7 +9,7 @@
   },
   "monte_carlo": {
     "steps": 100,
-    "temperature": 500
+    "temperature": 800
   },
   "random_direction": {
     "mode": "atomic"
@@ -21,7 +21,7 @@
   },
   "optimizer": {
     "max_steps": 100,
-    "fmax": 0.05
+    "fmax": 0.10
   },
   "mobile_control": {
     "mode": "region",

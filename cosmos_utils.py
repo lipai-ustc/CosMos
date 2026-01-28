@@ -509,3 +509,47 @@ class DeepMDCalculatorWithAtomicEnergy(Calculator):
             self.calculate(atoms)
         return self.results.get('energies', np.zeros(len(self.atoms)))
 
+def print_xyz(atoms, filename=None, *args, **kwargs):
+    """
+    Output xyz structure of atoms, allowing arbitrary number of atom-related parameters
+
+    Parameters:
+        atoms: ASE Atoms object
+        filename: Optional, output file path. If None, print to console
+        *args: Optional, list of atom-related parameters, each element is a tuple (list, title)
+            where list is the atom parameter array, title is the parameter name
+        **kwargs: Optional, keyword argument form of atom-related parameters
+            e.g., energy=[...], forces=[...]
+    """
+    from ase.io import write
+    import os
+    if not os.path.exists("xyz"):
+        os.makedirs("xyz")
+    if filename is None:
+        raise ValueError("filename must be provided when writing to file")
+
+    n_atoms = len(atoms)
+    # args
+    params = []
+    for arg in args:
+        if isinstance(arg, tuple) and len(arg) == 2:
+            param_list, param_title = arg
+            if len(param_list) != n_atoms:
+                raise ValueError(f"{param_title} must have n_atoms elements")
+            params.append((param_list, param_title))
+    # kwargs
+    for key, value in kwargs.items():
+        if len(value) != n_atoms:
+            raise ValueError(f"{key} must have n_atoms elements")
+        params.append((value, key))
+    
+    atoms_copy = atoms.copy()
+    
+    for param_list, param_title in params:
+        atoms_copy.info['name'] = param_title
+        atoms_copy.arrays['forces'] =  param_list
+        write("xyz/" + filename, atoms_copy, append=True)
+
+
+
+        

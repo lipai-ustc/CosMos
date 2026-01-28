@@ -66,18 +66,23 @@ class BiasedCalculator(Calculator):
 
         elif current_flag=="quadra":
             try:
-                a, R0, Ni0= self.quadra_params
+                a, R0, N0= self.quadra_params
             except ValueError:
                 raise ValueError(f"Invalid Quadratic parameter format: {self.quadra_params}")
             dr = R - R0
             # Calculate projection: (R - d)·(a·Nn + b·Nn)
-            proj = np.dot(dr, Ni0)
+            proj = np.dot(dr, N0)
             # Quadratic width uses self.ds (step size); equation (7) in the paper
             E_bias = -(a/2) * proj**2
-            F_bias = -(a/2) * proj * Ni0
+            F_bias =  (a/2) * proj * N0
 
             self.results['E_quadra'] = E_bias
             self.results['F_quadra'] = F_bias.reshape((-1, 3))
+        elif current_flag=="init":
+            self.results['E_quadra'] = 0.0
+            self.results['F_quadra'] = np.zeros_like(R).reshape((-1, 3))
+        else:
+            raise ValueError(f"Invalid flag: {current_flag}")
 
         self.results['E_base'] = E_base
         self.results['E_bias'] = E_bias

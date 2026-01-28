@@ -57,8 +57,6 @@ def rotate_vectors(v1i, v2i, angle):
     return normalize(v1o) * norm(v1i), normalize(v2o) * norm(v2i)
 
 
-
-[docs]
 class DimerEigenmodeSearch:
     """An implementation of the Dimer's minimum eigenvalue mode search.
 
@@ -228,6 +226,7 @@ class DimerEigenmodeSearch:
                      self.control.get_counter('rotcount'),
                      self.get_curvature(), '---------', norm(f_rot_A))
             self.logfile.write(l)
+            self.logfile.flush()
 
     def get_rotational_force(self):
         """Calculate the rotational force that acts on the dimer."""
@@ -311,8 +310,6 @@ class DimerEigenmodeSearch:
         self.forces1E = None
 
 
-
-
 class MinModeControl(IOContext):
     """A parent class for controlling minimum mode saddle point searches.
 
@@ -392,8 +389,6 @@ class MinModeControl(IOContext):
             self.counters[key] = 0
 
 
-
-[docs]
 class DimerControl(MinModeControl):
     """A class that takes care of the parameters needed for a Dimer search.
 
@@ -491,10 +486,6 @@ class DimerControl(MinModeControl):
             self.logfile.flush()
 
 
-
-
-
-[docs]
 class MinModeAtoms:
     """Wrapper for Atoms with information related to minimum mode searching.
 
@@ -1006,10 +997,6 @@ class MinModeAtoms:
         logfile.write(l)
 
 
-
-
-
-[docs]
 class MinModeTranslate(Optimizer):
     """An Optimizer specifically tailored to minimum mode following."""
 
@@ -1026,6 +1013,7 @@ class MinModeTranslate(Optimizer):
                 l = 'MinModeTranslate: STEP      TIME          ENERGY    ' + \
                     'MAX-FORCE     STEPSIZE    CURVATURE  ROT-STEPS\n'
             self.logfile.write(l)
+            self.logfile.flush()
 
         # Load the relevant parameters from control
         self.cg_on = self.control.get_parameter('cg_translation')
@@ -1043,7 +1031,6 @@ class MinModeTranslate(Optimizer):
 
     def step(self, f=None):
         """Perform the optimization step."""
-
         atoms = self.dimeratoms
         if f is None:
             f = atoms.get_forces()
@@ -1116,8 +1103,7 @@ class MinModeTranslate(Optimizer):
                             T[3], T[4], T[5], e, fmax, '    --------',
                             curvature, rotsteps)
             self.logfile.write(l)
-
-
+            self.logfile.flush()
 
 
 def read_eigenmode(mlog, index=-1):

@@ -7,8 +7,7 @@ from ase.io import write as ase_write
 from ase.constraints import FixAtoms
 from ase.optimize import LBFGS
 from biased_calculator import BiasedCalculator
-from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance
-
+from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance, print_xyz
 class CoSMoSSearch:
     def __init__(
         self,
@@ -382,12 +381,7 @@ class CoSMoSSearch:
             N = Ns
         
         # Normalize and scale by sqrt(n_mobile)
-
-        try:
-            #N = N / np.linalg.norm(N) * np.sqrt(n_mobile / 10)  # let each N component be on average of magnitude 1/sqrt(5)
-            N = N / np.linalg.norm(N)   # let each N component be on average of magnitude 1/sqrt(5)
-        except:
-            raise ValueError("Failed to normalize N vector")
+        N = self._remove_translation_rotation(atoms,N)
 
         if self.debug:
             # Debug output: show displacement statistics
@@ -524,6 +518,7 @@ class CoSMoSSearch:
         # Initialize current structure as initial minimum structure
         current_atoms = self.atoms.copy()
         
+        os.system("rm -rf xyz")
         for step in range(steps):
             print(f"\n------------- CoSMoS Step {step + 1}/{steps} -------------")
 
@@ -536,10 +531,19 @@ class CoSMoSSearch:
 
             gaussian_params = []
             N0 = self._generate_random_direction(current_atoms)
-
+            print("norm N0: ",np.linalg.norm(N0))
             for n in range(1, self.H + 1):
-                #N = self._biased_dimer_rotation(climb_atoms, N0)
-                N=N0
+                
+                N = self._biased_dimer_rotation_ase(climb_atoms, N0)
+                N = self._remove_translation_rotation(climb_atoms,N)
+                print("norm N: ",np.linalg.norm(N))
+                if self.debug:
+                    if n==1:
+                        print_xyz(atoms=climb_atoms,filename=f"climb_atoms_{step}.xyz",N0=N0.reshape(-1,3),N=N.reshape(-1,3))
+                    else:
+                        print_xyz(atoms=climb_atoms,filename=f"climb_atoms_{step}.xyz",N=N.reshape(-1,3))
+                
+                #N=N0
                 base_atoms = climb_atoms.copy()
                 # CRITICAL: Move structure along direction N before adding bias potential
                 # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
@@ -686,7 +690,7 @@ class CoSMoSSearch:
         print(f"\n--- Dimer Rotation ---")
         print(f"Parameters: ΔR={delta_R:.5f} Å, θ_trial={np.degrees(theta_trial):.3f}°, max_iter={max_rotations}")
         
-        self.biased_calc.reset_quadra([1000,R0_flat,N0])  #a=10
+        self.biased_calc.reset_quadra([1000000,R0_flat,N0])  #a=10
         # Iteratively rotate dimer to find optimal direction
         for rotation_iter in range(max_rotations):
             # Calculate dimer images: R_1 = R_0 + N * ΔR (Eq. 3)
@@ -698,7 +702,7 @@ class CoSMoSSearch:
             temp_atoms1.calc = self.biased_calc
 
             F1 = temp_atoms1.get_forces().flatten()
-            print("F_quadra:",self.biased_calc.results['F_quadra'].max(),self.biased_calc.results['F_quadra'].min())
+            print("quadra:",self.biased_calc.results['E_quadra'],self.biased_calc.results['F_quadra'].max(),self.biased_calc.results['F_quadra'].min())
             
             # Compute curvature C = (F_0 - F_1) · N / ΔR (Eq. 4)
             # Note: F_0 can be extrapolated from F_1 for efficiency
@@ -780,6 +784,164 @@ class CoSMoSSearch:
         print()
         return N   # Return optimized direction N^1 with original magnitude
 
+    def _biased_dimer_rotation_ase(self,atoms,N0):
+        """
+        Utilize the built-in mask feature of dimer to optimize the eigenmode direction 
+        to the lowest curvature direction considering only mobile atoms.
+        
+        Parameters:
+        - atoms: ASE Atoms object
+        - initial_direction: Initial direction vector (shape: 3*N,)
+        - mobile_mask: Boolean array, True indicates mobile atoms
+        - max_iterations: Maximum number of iterations
+        - tol: Convergence tolerance
+        
+        Returns:
+        - optimized_direction: Optimized eigenmode direction
+        - curvature: Corresponding curvature value
+        """
+        from dimer.dimer import MinModeAtoms, DimerControl, DimerEigenmodeSearch
+
+        if atoms.calc is None:
+            raise ValueError("Atoms object must have a calculator attached")
+        atoms_temp=atoms.copy()
+        atoms_temp.calc=atoms.calc
+        atoms_temp.calc.reset_quadra([50,atoms_temp.positions.flatten(),N0])  #a=10
+        n_atoms = len(atoms_temp)
+
+        dimer_mask = self.mobile_mask.tolist()
+
+        initial_direction=N0.reshape(-1,3)/np.linalg.norm(N0)
+        masked_initial_direction = np.zeros_like(initial_direction)
+        for i in range(n_atoms):
+            if dimer_mask[i]:
+                masked_initial_direction[i] = initial_direction[i]       
+       
+
+        # Set control parameters, including mask
+        control = DimerControl()
+        #control.set_parameter('dimer_separation', 0.02)
+        control.set_parameter('mask', dimer_mask)  # Set mask parameter
+        control.set_parameter('order', 1)  # We only need the first eigenmode
+        
+        # Create MinModeAtoms object
+        min_mode_atoms = MinModeAtoms(atoms_temp, control=control)
+        
+        # Process initial direction, considering only mobile atoms
+       
+        # Set initial eigenmode
+        min_mode_atoms.initialize_eigenmodes(eigenmodes=[masked_initial_direction])
+        
+        # Create eigenmode search object
+        eigenmode_search = DimerEigenmodeSearch(min_mode_atoms)
+        
+        # Set control parameters for eigenmode search
+        # Adjust these parameters to control convergence
+        eigenmode_search.control.set_parameter('f_rot_min', 0.01)  # Convergence threshold
+        eigenmode_search.control.set_parameter('f_rot_max', 0.1)  # Upper limit for stopping
+        eigenmode_search.control.set_parameter('max_num_rot', 100)  # Maximum rotations
+        
+        # Use dimer's built-in method to converge to eigenmode
+        atoms_temp2=atoms_temp.copy()
+        atoms_temp2.set_positions(atoms_temp.positions+0.01*N0.reshape(-1,3))
+        atoms_temp2.calc=self.biased_calc
+        print("before rotation:  E_total=",atoms_temp2.get_potential_energy()," E_quadra=",self.biased_calc.results['E_quadra'])
+        print("Starting eigenmode convergence...")
+        eigenmode_search.converge_to_eigenmode()
+        print("Eigenmode convergence completed.")
+        
+        # Get the final converged eigenmode
+        final_mode = eigenmode_search.eigenmode
+
+        atoms_temp2=atoms_temp.copy()
+        atoms_temp2.set_positions(atoms_temp.positions+0.01*final_mode)
+        atoms_temp2.calc=self.biased_calc
+        print("before rotation:  E_total=",atoms_temp2.get_potential_energy()," E_quadra=",self.biased_calc.results['E_quadra'])
+        
+        # Update the eigenmode in MinModeAtoms
+        min_mode_atoms.set_eigenmode(final_mode, order=1)
+        
+        # Get final curvature
+        final_curvature = eigenmode_search.get_curvature()
+        print(f"Final curvature: {final_curvature:.6f}")
+        
+        # Verify the final rotational force
+        eigenmode_search.update_virtual_forces()
+        final_rot_force = eigenmode_search.get_rotational_force()
+        final_rot_force_norm = np.linalg.norm(final_rot_force)
+        print(f"Final rotational force norm: {final_rot_force_norm:.6f}")
+        
+        # Return optimized direction and curvature
+        optimized_direction = min_mode_atoms.get_eigenmode(order=1)
+        #final_curvature = min_mode_atoms.get_curvature(order=1)
+        
+        return optimized_direction.flatten()
+
+    def _remove_translation_rotation(self,atoms,N):
+        """
+        Remove translation and rotation from N vector
+        """
+        # do not remove translation and rotation for bulk structure
+        if self.geometry_type == 'bulk': 
+            return N / np.linalg.norm(N)
+            
+        n_atoms = len(atoms)
+        mobile_displacements = []
+        mobile_positions = []
+        for i in range(n_atoms):
+            if self.mobile_mask[i]:
+                mobile_displacements.append(N[3*i:3*i+3])
+                mobile_positions.append(atoms.get_positions()[i])
+        
+        if mobile_displacements:
+            # Remove translation
+            avg_displacement = np.mean(mobile_displacements, axis=0)
+            for i in range(n_atoms):
+                if self.mobile_mask[i]:
+                    N[3*i:3*i+3] -= avg_displacement
+            
+            # Remove rotation
+            # Calculate center of mass
+            mobile_positions = np.array(mobile_positions)
+            com = np.mean(mobile_positions, axis=0)
+            
+            # Calculate positions relative to COM
+            rel_positions = mobile_positions - com
+            
+            # Calculate displacement vectors (already relative to COM since we removed translation)
+            disp_vectors = np.array([N[3*i:3*i+3] for i in range(n_atoms) if self.mobile_mask[i]])
+            
+            # Calculate angular momentum-like vectors (position cross displacement)
+            ang_mom = np.cross(rel_positions, disp_vectors)
+            total_ang_mom = np.sum(ang_mom, axis=0)
+            
+            # If there's a rotational component, remove it
+            if np.linalg.norm(total_ang_mom) > 1e-10:
+                # Normalize angular momentum vector
+                total_ang_mom = total_ang_mom / np.linalg.norm(total_ang_mom)
+                
+                # Remove the rotational component from each displacement
+                for i, (pos, disp) in enumerate(zip(rel_positions, disp_vectors)):
+                    # Calculate the rotational component (parallel to position cross ang_mom)
+                    rot_axis = np.cross(pos, total_ang_mom)
+                    if np.linalg.norm(rot_axis) > 1e-10:
+                        rot_axis = rot_axis / np.linalg.norm(rot_axis)
+                        # Project displacement onto rotation axis
+                        rot_component = np.dot(disp, rot_axis) * rot_axis
+                        # Subtract rotational component
+                        disp_vectors[i] -= rot_component
+                
+                # Update the N vector with rotation-free displacements
+                mobile_indices = [i for i in range(n_atoms) if self.mobile_mask[i]]
+                for i, idx in enumerate(mobile_indices):
+                    N[3*idx:3*idx+3] = disp_vectors[i]
+        
+        # Normalize
+        N = N / np.linalg.norm(N)
+        
+        return N
+
+
     def _print_mobile(self,list1,list2=None, list3=None,title1="",title2="",title3=""):
         if len(list1)!=self.n_atoms:
             raise ValueError("list1 must have n_atoms elements")
@@ -794,4 +956,5 @@ class CoSMoSSearch:
                     info+=f" | {title2} = {list2[i]}"
                 if list3 is not None:
                     info+=f" | {title3} = {list3[i]}"
-                print(info) 
+                print(info)
+
