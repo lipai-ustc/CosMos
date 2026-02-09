@@ -90,16 +90,21 @@ def main() -> None:
     monte_carlo={'steps': mc_steps, 'temperature': temperature}
     
     # 5. Get random direction mode and parameters  (optional)
-    rd_config = config.get('random_direction', {})
-    rd_mode = rd_config.get('mode', 'base_plus_nl') # Default method according to the original SSW algorithm
-    valid_modes = {'base',            # Temperature-based default scale (Boltzmann distribution)
-                   'atomic',          # 'base' * atomic_energy_scale
-                   'base_plus_nl',    # 'base' + Nl
-                   'atomic_plus_nl',  # 'base' * atomic_energy_scale + Nl
+    climb_config = config.get('climbing',{})
+    rd_config = climb_config.get('random_direction', {})
+    rd_mode = rd_config.get('mode', ['thermo','atomic']) # Default method according to the original SSW algorithm
+    rd_ratio = rd_config.get('ratio', [[[0.5,0.5],1]])
+    quadra_param=rd_config.get('rotation_param', 10)
+
+    valid_modes = {'thermo',            # Temperature-based default scale (Boltzmann distribution)
+                   'atomic',          # 'thermo' * atomic_energy_scale
+                   'nl',    # 'base' + Nl
+                   'element',
                    'python'           # User-defined Python function ()
                    }
-    if rd_mode not in valid_modes:
-        raise ValueError(f"Invalid random direction mode: '{rd_mode}'. Must be one of {valid_modes}.")
+    for i_mode in rd_mode:
+        if i_mode not in valid_modes:
+            raise ValueError(f"Invalid random direction mode: '{i_mode}'. Must be one of {valid_modes}.")
     element_weights = rd_config.get('element_weights', {}) # additional weight based on element type
 
     if 'atomic' in rd_mode:
@@ -127,14 +132,16 @@ def main() -> None:
     else:
         atomic_energy_calculator = None
                   
-    random_direction={'mode': rd_mode, 'element_weights': element_weights}
+    random_direction={'mode': rd_mode, 'ratio': rd_ratio, 'element_weights': element_weights, 'quadra_param': quadra_param}
 
     # 6. Get Climbing configuration (optional)
-    climb_config = config.get('climbing',{})
-    gaussian_height = climb_config.get('gaussian_height', 0.2)    # w parameter
-    gaussian_width  = climb_config.get('gaussian_width', 0.2)     # ds parameter
-    max_gaussians   = climb_config.get('max_gaussians', 20)       # H parameter
-    climbing={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
+
+    gaussian_config=climb_config.get('gaussian',{})
+    gaussian_height = gaussian_config.get('height', 0.2)    # w parameter
+    gaussian_width  = gaussian_config.get('width', 0.2)     # ds parameter
+    max_gaussians   = gaussian_config.get('Nmax', 20)       # H parameter
+    
+    gaussian={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
 
     # 7. Get Optimizer configuration (optional)
     optimizer_config = config.get('optimizer',{})
@@ -217,9 +224,9 @@ def main() -> None:
     # 9. Get output configuration with defaults (optional)
     output_config = config.get('output', {})
     output_dir = output_config.get('directory', 'cosmos_output')
-
-    # 10. Get debug mode (optional)
-    debug_mode = config.get('debug', False)    
+    output_xyz=output_config.get('rd_xyz', False)
+    debug_mode = output_config.get('debug', False)    
+    output={'directory': output_dir, 'rd_xyz': output_xyz, 'debug': debug_mode}
 
     # Prepare log file and print all configuration parameters at the top
     os.makedirs(output_dir, exist_ok=True)
@@ -243,32 +250,44 @@ def main() -> None:
     print(f'\nMonte Carlo information:')
     print(f'  Monte Carlo steps: {mc_steps}')
     print(f'  Temperature (K)  : {temperature}')
-    print(f'\nClimbing information:')
+    print(f'\nRandom Direction information:')
+    print(f'  RD mode          : {rd_mode}')
+    for i,ratios in enumerate(rd_ratio):
+        print(f'  Scheme {i} : mode ratio={ratios[0]} with Posibility {ratios[-1]}')
+    if element_weights:  # Empty dict evaluates to False
+        print(f'  Element weights  : {element_weights}')
+    print(f'  Dimer rotation a : {quadra_param}')
+    print(f'\nGaussian information:')
     print(f'  Gaussian height w: {gaussian_height}')
     print(f'  Gaussian width ds: {gaussian_width}')
     print(f'  Max Gaussians H  : {max_gaussians}')
     print(f'\nOptimizer information:')
     print(f'  Optimizer steps  : {max_steps}')
     print(f'  Optimizer fmax   : {fmax}')
-    print(f'\nRandom Direction information:')
-    print(f'  RD mode          : {rd_mode}')
-
-    if element_weights:  # Empty dict evaluates to False
-        print(f'  Element weights  : {element_weights}')
     if mobile_mode != 'all':
+        print(f'\nConstraint information:')
         print(f'  Mobile mode    : {mobile_mode}')
-        print(f'  Mobile atoms     : {mobile_atoms}')       
-        print(f'  Mobile region  : {mobile_region}')         
+        print(f'  Number of Mobile/All atoms     : {len(mobile_atoms)}/{len(atoms)}')       
+        # Create a display copy of mobile_region with rounded coordinates
+        mobile_region_display = mobile_region.copy()
+        # Round coordinate values for display (center, origin, normal)
+        coord_keys = ['center', 'origin', 'normal']
+        for key in coord_keys:
+            if key in mobile_region_display:
+                mobile_region_display[key] = [round(coord, 4) for coord in mobile_region_display[key]]
+        print(f'  Mobile region  : {mobile_region_display}')
         print(f'  Wall strength    : {wall_strength}')
         print(f'  Wall offset      : {wall_offset}')
     else:
         print('  Mobile control : None')
     print(f'\nOutput information:')
     print(f'  Output dir       : {output_dir}')
+    if output_xyz is not None:
+        print(f'  RD info          : {output_xyz}')
     print(f'  Debug mode       : {debug_mode}')
     
     if 'atomic' in rd_mode:
-        print(f'\n  {rd_info}')
+        print(f'\n{rd_info}')
 
     print('\n\n=====================================    Start of CoSMoS Search    ==================================\n') 
 
@@ -279,11 +298,10 @@ def main() -> None:
         atomic_calculator=atomic_energy_calculator,
         monte_carlo=monte_carlo,
         random_direction=random_direction,
-        climbing=climbing,
+        gaussian=gaussian,
         optimizer=optimizer,
         mobile_control=mobile_control,
-        output_dir=output_dir,
-        debug=debug_mode,
+        output=output
     )
     
     # Run CoSMoS global optimization

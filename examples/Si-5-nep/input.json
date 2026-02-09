@@ -9,15 +9,21 @@
   },
   "monte_carlo": {
     "steps": 100,
-    "temperature": 800
+    "temperature": 500
   },
   "random_direction": {
-    "mode": "atomic"
+    "mode": ["thermo","nl","atomic"],
+    "ratio": [[[0.4,0.4,0.2],0.5],[[0.2,0.0,0.8],0.5]]
   },
   "climbing": {
-    "gaussian_height": 0.2,
-    "gaussian_width": 0.2,
-    "max_gaussians": 20
+    "gaussian":{
+      "height": 0.2,
+      "width": 0.1,
+      "Nmax": 20
+    },
+    "dimer_rotation":{
+      "quadra_param": 50
+    }
   },
   "optimizer": {
     "max_steps": 100,
@@ -32,7 +38,8 @@
     "wall_offset": 2.0
   },
   "output": {
-    "directory": "cosmos_output"
+    "directory": "cosmos_output",
+    "rd_xyz": true
   },
   "debug": true
 }

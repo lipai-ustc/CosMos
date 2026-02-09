@@ -108,9 +108,7 @@ class DimerEigenmodeSearch:
 
         if control is None:
             self.control = DimerControl(**kwargs)
-            w = 'Missing control object in ' + self.__class__.__name__ + \
-                '. Using default: DimerControl()'
-            warnings.warn(w, UserWarning)
+
             if self.control.logfile is not None:
                 self.control.logfile.write('DIM:WARN: ' + w + '\n')
                 self.control.logfile.flush()
@@ -323,7 +321,7 @@ class MinModeControl(IOContext):
     """
     parameters: Dict[str, Any] = {}
 
-    def __init__(self, logfile='-', eigenmode_logfile=None, comm=world,
+    def __init__(self, logfile=None, eigenmode_logfile=None, comm=world,
                  **kwargs):
         # Overwrite the defaults with the input parameters given
         for key in kwargs:
@@ -468,6 +466,7 @@ class DimerControl(MinModeControl):
     # NB: Can maybe put this in EigenmodeSearch and MinModeControl
     def log(self, parameter=None):
         """Log the parameters of the eigenmode search."""
+        self.logfile= None
         if self.logfile is not None:
             if parameter is not None:
                 l = 'DIM:CONTROL: Updated Parameter: {} = {}\n'.format(

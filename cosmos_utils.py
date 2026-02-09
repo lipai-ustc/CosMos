@@ -509,7 +509,7 @@ class DeepMDCalculatorWithAtomicEnergy(Calculator):
             self.calculate(atoms)
         return self.results.get('energies', np.zeros(len(self.atoms)))
 
-def print_xyz(atoms, filename=None, *args, **kwargs):
+def print_xyz(atoms, filename, energy, bias_energy, *args, **kwargs):
     """
     Output xyz structure of atoms, allowing arbitrary number of atom-related parameters
 
@@ -546,10 +546,8 @@ def print_xyz(atoms, filename=None, *args, **kwargs):
     atoms_copy = atoms.copy()
     
     for param_list, param_title in params:
+        atoms_copy.info['energy'] = energy
+        atoms_copy.info['bias_energy'] = bias_energy
         atoms_copy.info['name'] = param_title
         atoms_copy.arrays['forces'] =  param_list
         write("xyz/" + filename, atoms_copy, append=True)
-
-
-
-        

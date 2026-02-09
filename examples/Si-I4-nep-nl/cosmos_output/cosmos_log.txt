@@ -1,0 +1,219 @@
+cosmos unknown (Linux 4.18.0-553.el8_10.x86_64)
+executed on             Linux date 2026.02.09  15:16:19
+running on    192 total cores
+Python 3.12.12, ASE 3.26.0, dscribe 2.1.2
+
+
+===================================    CoSMoS Input Configuration    ================================
+
+
+System information:
+  System name      : Si-I4
+  Task type        : global_search
+  Structure file   : /public/home/lipai/share/apps/CosMos/examples/Si-I4-nep-nl/init.xyz
+  Geometry type    : bulk
+
+Potential information:
+  Potential type   : nep
+  Potential model  : /public/home/lipai/share/apps/CosMos/examples/Si-I4-nep-nl/Si.txt
+
+Monte Carlo information:
+  Monte Carlo steps: 200
+  Temperature (K)  : 500
+
+Random Direction information:
+  RD mode          : ['thermo', 'nl']
+  Scheme 0 : mode ratio=[0.1, 0.9] with Posibility 0.5
+  Scheme 1 : mode ratio=[0.2, 0.8] with Posibility 0.5
+  Dimer rotation a : 30
+
+Gaussian information:
+  Gaussian height w: 0.1
+  Gaussian width ds: 0.1
+  Max Gaussians H  : 20
+
+Optimizer information:
+  Optimizer steps  : 100
+  Optimizer fmax   : 0.05
+
+Constraint information:
+  Mobile mode    : region
+  Number of Mobile/All atoms     : 46/1004
+  Mobile region  : {'type': 'sphere', 'center': [13.6249, 13.8426, 13.9802], 'radius': 6}
+  Wall strength    : 10.0
+  Wall offset      : 2.0
+
+Output information:
+  Output dir       : cosmos_output
+  RD info          : True
+  Debug mode       : False
+
+
+=====================================    Start of CoSMoS Search    ==================================
+
+Found new minimum #0: E = -10122.206109 eV
+
+------------- CoSMoS Step 1/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=1, energy -10122.269311 eV <= basin -10122.206109 eV
+Accept new basin structure: ΔE = -0.081343 eV, P = 1.0000
+Found new minimum #1: E = -10122.287452 eV
+Step 1: Energy = -10122.287452 eV
+
+------------- CoSMoS Step 2/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.259279 eV, P = 1.0000
+Found new minimum #2: E = -10122.546731 eV
+Step 2: Energy = -10122.546731 eV
+
+------------- CoSMoS Step 3/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000590 eV, P = 0.9864
+Found new minimum #3: E = -10122.546141 eV
+Step 3: Energy = -10122.546141 eV
+
+------------- CoSMoS Step 4/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000548 eV, P = 0.9874
+Found new minimum #4: E = -10122.545592 eV
+Step 4: Energy = -10122.545592 eV
+
+------------- CoSMoS Step 5/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.000792 eV, P = 1.0000
+Found new minimum #5: E = -10122.546384 eV
+Step 5: Energy = -10122.546384 eV
+
+------------- CoSMoS Step 6/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.053673 eV, P = 0.2877
+Found new minimum #6: E = -10122.492711 eV
+Step 6: Energy = -10122.492711 eV
+
+------------- CoSMoS Step 7/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000376 eV, P = 0.9913
+Found new minimum #7: E = -10122.546008 eV
+Step 7: Energy = -10122.546008 eV
+
+------------- CoSMoS Step 8/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=14, energy -10122.602713 eV <= basin -10122.546008 eV
+Accept new basin structure: ΔE = -0.056706 eV, P = 1.0000
+Found new minimum #8: E = -10122.602713 eV
+Step 8: Energy = -10122.602713 eV
+
+------------- CoSMoS Step 9/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000522 eV, P = 0.9880
+Found new minimum #9: E = -10122.602191 eV
+Step 9: Energy = -10122.602191 eV
+
+------------- CoSMoS Step 10/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000023 eV, P = 0.9995
+Found new minimum #10: E = -10122.602168 eV
+Step 10: Energy = -10122.602168 eV
+
+------------- CoSMoS Step 11/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.055443 eV, P = 0.2762
+Found new minimum #11: E = -10122.546725 eV
+Step 11: Energy = -10122.546725 eV
+
+------------- CoSMoS Step 12/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.000840 eV, P = 1.0000
+Found new minimum #12: E = -10122.603008 eV
+Step 12: Energy = -10122.603008 eV
+
+------------- CoSMoS Step 13/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.514558 eV, P = 0.0000
+Found new minimum #13: E = -10122.088450 eV
+Step 13: Energy = -10122.088450 eV
+
+------------- CoSMoS Step 14/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000761 eV, P = 0.9825
+Found new minimum #14: E = -10122.602247 eV
+Step 14: Energy = -10122.602247 eV
+
+------------- CoSMoS Step 15/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.350191 eV, P = 0.0003
+Found new minimum #15: E = -10122.252057 eV
+Step 15: Energy = -10122.252057 eV
+
+------------- CoSMoS Step 16/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000628 eV, P = 0.9855
+Found new minimum #16: E = -10122.601620 eV
+Step 16: Energy = -10122.601620 eV
+
+------------- CoSMoS Step 17/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.835426 eV, P = 0.0000
+Found new minimum #17: E = -10121.766194 eV
+Step 17: Energy = -10121.766194 eV
+
+------------- CoSMoS Step 18/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.000369 eV, P = 1.0000
+Found new minimum #18: E = -10122.601989 eV
+Step 18: Energy = -10122.601989 eV
+
+------------- CoSMoS Step 19/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]

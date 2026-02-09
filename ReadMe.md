@@ -243,27 +243,28 @@ Requires a `calculator.py` file in the working directory.
 
 #### Climbing Layer
 - `climbing`: Climbing phase parameters
-  - `gaussian_height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.2)
-  - `gaussian_width`: Width of Gaussian potentials in Å (ds parameter, default: 0.2)
-  - `max_gaussians`: Maximum number of Gaussians per climbing (H parameter, default: 20)
+  - `gaussian`: Gaussian bias potential settings
+    - `height`: Height of Gaussian bias potentials in eV (w parameter, default: 0.2)
+    - `width`: Width of Gaussian potentials in Å (ds parameter, default: 0.2)
+    - `Nmax`: Maximum number of Gaussians per climbing (H parameter, default: 20)
+  - `random_direction`: Random direction generation parameters (optional)
+    - `mode`: List of methods for generating random search directions (default: `["thermo","atomic"]`)
+      - `"thermo"`: Use temperature-based random vectors (Boltzmann distribution)
+      - `"atomic"`: Use `thermo` * energy-weighted random vectors based on per-atom energies
+      - `"nl"`: Combine base random with local rigid movement (Nl)
+      - `"element"`: Use element-weighted random vectors
+      - `"python"`: Use custom user-defined function (see below)
+    - `ratio`: List of weight configurations for combining multiple modes (default: `[[[0.5,0.5],1]]`)
+    - `rotation_param`: Dimer rotation parameter (default: 10)
+    - `element_weights`: Optional dict mapping element symbols to weight factors (e.g., `{"Cu": 1.5, "Al": 1.0}`)
+    - `atomic_energy_calculator`: Calculator configuration for per-atom energies (only needed for `"atomic"` mode)
+      - If not specified, uses the main potential calculator
+      - Same format as `potential` section (with `type`, `model`, etc.)
 
 #### Optimizer Layer
 - `optimizer`: Local optimization settings
   - `max_steps`: Maximum optimization steps (default: 500)
   - `fmax`: Force convergence criterion in eV/Å (default: 0.05)
-
-#### Random Direction Layer
-- `random_direction`: Random direction generation parameters (optional)
-  - `mode`: Method for generating random search directions (default: `"base_plus_nl"`)
-    - `"base"`: Use uniform random vectors for all mobile atoms
-    - `"atomic"`: Use energy-weighted random vectors based on per-atom energies
-    - `"base_plus_nl"`: Combine uniform random with local rigid movement (Nl) [default]
-    - `"atomic_plus_nl"`: Combine energy-weighted random with local rigid movement (Nl)
-    - `"python"`: Use custom user-defined function (see below)
-  - `element_weights`: Optional dict mapping element symbols to weight factors (e.g., `{"Cu": 1.5, "Al": 1.0}`)
-  - `atomic_energy_calculator`: Calculator configuration for per-atom energies (only needed for `"atomic"` or `"atomic_plus_nl"` modes)
-    - If not specified, uses the main potential calculator
-    - Same format as `potential` section (with `type`, `model`, etc.)
 
 ##### Custom Random Direction Generation
 When `random_direction.mode` is set to `"python"`, you can provide your own random direction generation function:
@@ -358,7 +359,9 @@ The mobile control feature allows you to constrain which atoms can move during o
 
 **Mode 1: All atoms mobile (default)**
 ```json
-"mobile_control": null
+"mobile_control": {
+  "mode": "all"
+}
 ```
 Or simply omit the `mobile_control` section entirely.
 
@@ -464,18 +467,17 @@ When using mobile control with `wall_strength > 0`, a quadratic repulsive wall p
 #### Output and Debugging
 - `output`: Output settings
   - `directory`: Output directory name (default: `"cosmos_output"`)
-
-- `debug`: Enable debug mode for detailed logging (default: `false`, top-level parameter)
-  - When `true`: Logs step-by-step energy components (base, Gaussian bias, wall) during optimization to `cosmos_log.txt`
-  - When `false`: Only logs final results and major events
+  - `rd_xyz`: Enable output of random direction information (default: `false`)
+  - `debug`: Enable debug mode for detailed logging (default: `false`)
+    - When `true`: Logs step-by-step energy components (base, Gaussian bias, wall) during optimization to `cosmos_log.txt`
+    - When `false`: Only logs final results and major events
 
 **Debug Mode Example:**
 ```json
 "output": {
-  "directory": "cosmos_output"
-},
-"debug": true
-```
+  "directory": "cosmos_output",
+  "debug": true
+}
 
 In debug mode, the log file will contain detailed information for each optimization step:
 ```
@@ -490,10 +492,10 @@ Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV,
 | `initial_atoms` | Initial atomic structure | Required |
 | `calculator` | Calculator object | Required |
 | `ds` | Step size (Å) | 0.2 |
-| `H` | Number of Gaussian potentials | 14 |
-| `w` | Gaussian potential height (eV) | 0.1 |
-| `temperature` | Temperature (K) | 300 |
-| `mobile_control` | Mobile control configuration (dict or None) | None (all mobile) |
+| `H` | Number of Gaussian potentials | 20 |
+| `w` | Gaussian potential height (eV) | 0.2 |
+| `temperature` | Temperature (K) | Required |
+| `mobile_control` | Mobile control configuration | `{"mode": "all"}` |
 
 ## Examples
 Example directories are provided in the `examples/` folder:
@@ -506,6 +508,17 @@ Example directories are provided in the `examples/` folder:
 - `C60-python-deepmd`: C60 example using DeepMD via custom calculator.py
 - `C60-python-tersoff`: C60 example using Tersoff via custom calculator.py  
 - `Au100-python-fairchem`: Gold surface example using FAIRChem via custom calculator.py
+
+### Task Types
+CoSMoS supports two task types:
+
+1. **Global Search** (`global_search`):
+   - Finds stable atomic structures across the potential energy surface
+   - Suitable for discovering ground state and metastable structures
+
+2. **Structure Sampling** (`structure_sampling`):
+   - Samples atomic structures around existing minima
+   - Suitable for generating configurations for statistical analysis or further simulations
 
 **Note**: For custom calculator examples, the `calculator.py` file in each directory defines the ASE calculator. To use these examples:
 1. Set `"type": "python"` in `input.json`
