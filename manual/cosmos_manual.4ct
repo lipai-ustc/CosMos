@@ -1,0 +1,77 @@
+\expandafter\ifx\csname doTocEntry\endcsname\relax \expandafter\endinput\fi 
+\doTocEntry\toclikesection{}{\csname a:TocLink\endcsname{1}{x1-1000}{QQ2-1-1}{Contents}}{3}\relax 
+\doTocEntry\tocsection{1}{\csname a:TocLink\endcsname{1}{x1-20001}{QQ2-1-2}{Introduction}}{5}\relax 
+\doTocEntry\tocsubsection{1.1}{\csname a:TocLink\endcsname{1}{x1-30001.1}{QQ2-1-3}{Overview}}{5}\relax 
+\doTocEntry\tocsubsection{1.2}{\csname a:TocLink\endcsname{1}{x1-40001.2}{QQ2-1-4}{Key Features}}{5}\relax 
+\doTocEntry\tocsection{2}{\csname a:TocLink\endcsname{1}{x1-50002}{QQ2-1-5}{Theoretical Background}}{5}\relax 
+\doTocEntry\tocsubsection{2.1}{\csname a:TocLink\endcsname{1}{x1-60002.1}{QQ2-1-6}{Stochastic Surface Walking (SSW) Algorithm}}{6}\relax 
+\doTocEntry\tocsubsection{2.2}{\csname a:TocLink\endcsname{1}{x1-70002.2}{QQ2-1-7}{Algorithm Workflow}}{6}\relax 
+\doTocEntry\tocloa{1}{\csname a:TocLink\endcsname{1}{x1-7001r1}{}{\ignorespaces CoSMoS Search Algorithm}}{algorithm}\relax 
+\doTocEntry\tocsubsection{2.3}{\csname a:TocLink\endcsname{1}{x1-80002.3}{QQ2-1-9}{Energy-Weighted Direction Sampling}}{9}\relax 
+\doTocEntry\tocsubsection{2.4}{\csname a:TocLink\endcsname{1}{x1-90002.4}{QQ2-1-10}{Structure Comparison via SOAP Descriptors}}{9}\relax 
+\doTocEntry\tocsection{3}{\csname a:TocLink\endcsname{1}{x1-100003}{QQ2-1-11}{Installation}}{10}\relax 
+\doTocEntry\tocsubsection{3.1}{\csname a:TocLink\endcsname{1}{x1-110003.1}{QQ2-1-12}{System Requirements}}{10}\relax 
+\doTocEntry\tocsubsection{3.2}{\csname a:TocLink\endcsname{1}{x1-120003.2}{QQ2-1-13}{Installation Steps}}{10}\relax 
+\doTocEntry\toclol{0}{\csname a:TocLink\endcsname{1}{listing-1}{}{\ignorespaces \numberline {1}Installation from source}}{}\relax 
+\doTocEntry\tocsection{4}{\csname a:TocLink\endcsname{1}{x1-130004}{QQ2-1-15}{Basic Usage}}{10}\relax 
+\doTocEntry\tocsubsection{4.1}{\csname a:TocLink\endcsname{1}{x1-140004.1}{QQ2-1-16}{Input Files}}{11}\relax 
+\doTocEntry\tocsubsection{4.2}{\csname a:TocLink\endcsname{1}{x1-150004.2}{QQ2-1-17}{Running CoSMoS}}{11}\relax 
+\doTocEntry\toclol{0}{\csname a:TocLink\endcsname{1}{listing-3}{}{\ignorespaces \numberline {2}Basic execution}}{}\relax 
+\doTocEntry\tocsubsection{4.3}{\csname a:TocLink\endcsname{1}{x1-160004.3}{QQ2-1-19}{Output Configuration}}{11}\relax 
+\doTocEntry\toclot{1}{\csname a:TocLink\endcsname{1}{x1-16001r1}{}{\ignorespaces Output configuration parameters}}{table}\relax 
+\doTocEntry\tocsubsection{4.4}{\csname a:TocLink\endcsname{1}{x1-170004.4}{QQ2-1-21}{Output Files}}{14}\relax 
+\doTocEntry\tocsubsection{4.5}{\csname a:TocLink\endcsname{1}{x1-180004.5}{QQ2-1-22}{Debug Mode Output}}{14}\relax 
+\doTocEntry\tocsection{5}{\csname a:TocLink\endcsname{1}{x1-190005}{QQ2-1-23}{Configuration Reference}}{14}\relax 
+\doTocEntry\tocsubsection{5.1}{\csname a:TocLink\endcsname{1}{x1-200005.1}{QQ2-1-24}{input.json Structure}}{14}\relax 
+\doTocEntry\toclol{1}{\csname a:TocLink\endcsname{1}{listing-5}{}{\ignorespaces \numberline {3}Minimal input.json example}}{}\relax 
+\doTocEntry\tocsubsection{5.2}{\csname a:TocLink\endcsname{1}{x1-210005.2}{QQ2-1-26}{Potential Configuration}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.1}{\csname a:TocLink\endcsname{1}{x1-220005.2.1}{QQ2-1-27}{EAM Potential}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.2}{\csname a:TocLink\endcsname{1}{x1-230005.2.2}{QQ2-1-28}{CHGNet}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.3}{\csname a:TocLink\endcsname{1}{x1-240005.2.3}{QQ2-1-29}{DeepMD}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.4}{\csname a:TocLink\endcsname{1}{x1-250005.2.4}{QQ2-1-30}{FAIRChem (Open Catalyst Project)}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.5}{\csname a:TocLink\endcsname{1}{x1-260005.2.5}{QQ2-1-31}{VASP}}{15}\relax 
+\doTocEntry\tocsubsubsection{5.2.6}{\csname a:TocLink\endcsname{1}{x1-270005.2.6}{QQ2-1-32}{Custom Python Calculator}}{15}\relax 
+\doTocEntry\tocsubsection{5.3}{\csname a:TocLink\endcsname{1}{x1-280005.3}{QQ2-1-33}{Monte Carlo Parameters}}{16}\relax 
+\doTocEntry\toclot{2}{\csname a:TocLink\endcsname{1}{x1-28001r2}{}{\ignorespaces Monte Carlo configuration parameters}}{table}\relax 
+\doTocEntry\tocsubsection{5.4}{\csname a:TocLink\endcsname{1}{x1-290005.4}{QQ2-1-35}{Climbing Phase Parameters}}{19}\relax 
+\doTocEntry\tocsubsubsection{5.4.1}{\csname a:TocLink\endcsname{1}{x1-300005.4.1}{QQ2-1-36}{Gaussian Bias Potentials}}{19}\relax 
+\doTocEntry\toclot{3}{\csname a:TocLink\endcsname{1}{x1-30001r3}{}{\ignorespaces Gaussian bias potential parameters}}{table}\relax 
+\doTocEntry\tocsubsubsection{5.4.2}{\csname a:TocLink\endcsname{1}{x1-310005.4.2}{QQ2-1-38}{Random Direction Generation}}{22}\relax 
+\doTocEntry\toclot{4}{\csname a:TocLink\endcsname{1}{x1-31001r4}{}{\ignorespaces Random direction generation parameters}}{table}\relax 
+\doTocEntry\tocsubsubsection{5.4.3}{\csname a:TocLink\endcsname{1}{x1-320005.4.3}{QQ2-1-40}{Random Direction Modes}}{25}\relax 
+\doTocEntry\toclot{5}{\csname a:TocLink\endcsname{1}{x1-32001r5}{}{\ignorespaces Random direction generation modes}}{table}\relax 
+\doTocEntry\tocsubsection{5.5}{\csname a:TocLink\endcsname{1}{x1-330005.5}{QQ2-1-42}{Mobile Control}}{28}\relax 
+\doTocEntry\tocsubsubsection{5.5.1}{\csname a:TocLink\endcsname{1}{x1-340005.5.1}{QQ2-1-43}{Mode 1: All Atoms Mobile (Default)}}{28}\relax 
+\doTocEntry\tocsubsubsection{5.5.2}{\csname a:TocLink\endcsname{1}{x1-350005.5.2}{QQ2-1-44}{Mode 2a: Specify Mobile Atoms}}{28}\relax 
+\doTocEntry\tocsubsubsection{5.5.3}{\csname a:TocLink\endcsname{1}{x1-360005.5.3}{QQ2-1-45}{Mode 2b: Specify Fixed Atoms}}{28}\relax 
+\doTocEntry\tocsubsubsection{5.5.4}{\csname a:TocLink\endcsname{1}{x1-370005.5.4}{QQ2-1-46}{Mode 3: Region-Based Control}}{28}\relax 
+\doTocEntry\tocparagraph{}{\csname a:TocLink\endcsname{1}{x1-38000}{QQ2-1-47}{Spherical Region}}{28}\relax 
+\doTocEntry\tocparagraph{}{\csname a:TocLink\endcsname{1}{x1-39000}{QQ2-1-48}{Slab Region}}{29}\relax 
+\doTocEntry\tocparagraph{}{\csname a:TocLink\endcsname{1}{x1-40000}{QQ2-1-49}{Lower Region}}{29}\relax 
+\doTocEntry\tocparagraph{}{\csname a:TocLink\endcsname{1}{x1-41000}{QQ2-1-50}{Upper Region}}{29}\relax 
+\doTocEntry\tocsubsubsection{5.5.5}{\csname a:TocLink\endcsname{1}{x1-420005.5.5}{QQ2-1-51}{Wall Potential}}{29}\relax 
+\doTocEntry\tocsection{6}{\csname a:TocLink\endcsname{1}{x1-430006}{QQ2-1-52}{Low-Dimensional Systems}}{29}\relax 
+\doTocEntry\tocsubsection{6.1}{\csname a:TocLink\endcsname{1}{x1-440006.1}{QQ2-1-53}{Geometry Classification}}{30}\relax 
+\doTocEntry\tocsubsection{6.2}{\csname a:TocLink\endcsname{1}{x1-450006.2}{QQ2-1-54}{Structure Preparation}}{30}\relax 
+\doTocEntry\tocsubsection{6.3}{\csname a:TocLink\endcsname{1}{x1-460006.3}{QQ2-1-55}{Vacuum Axis Handling}}{30}\relax 
+\doTocEntry\tocsection{7}{\csname a:TocLink\endcsname{1}{x1-470007}{QQ2-1-56}{Examples}}{31}\relax 
+\doTocEntry\tocsubsection{7.1}{\csname a:TocLink\endcsname{1}{x1-480007.1}{QQ2-1-57}{Example 1: AlCu Cluster with EAM}}{31}\relax 
+\doTocEntry\tocsubsection{7.2}{\csname a:TocLink\endcsname{1}{x1-490007.2}{QQ2-1-58}{Example 2: C$_{60}$ with DeepMD}}{31}\relax 
+\doTocEntry\tocsubsection{7.3}{\csname a:TocLink\endcsname{1}{x1-500007.3}{QQ2-1-59}{Example 3: Au Surface with FAIRChem (Custom Calculator)}}{32}\relax 
+\doTocEntry\tocsection{8}{\csname a:TocLink\endcsname{1}{x1-510008}{QQ2-1-60}{Advanced Topics}}{32}\relax 
+\doTocEntry\tocsubsection{8.1}{\csname a:TocLink\endcsname{1}{x1-520008.1}{QQ2-1-61}{Task Types}}{32}\relax 
+\doTocEntry\tocsubsection{8.2}{\csname a:TocLink\endcsname{1}{x1-530008.2}{QQ2-1-62}{Custom Calculator Development}}{33}\relax 
+\doTocEntry\tocsubsection{8.3}{\csname a:TocLink\endcsname{1}{x1-540008.3}{QQ2-1-63}{Custom Random Direction Generation}}{33}\relax 
+\doTocEntry\tocsubsection{8.4}{\csname a:TocLink\endcsname{1}{x1-550008.4}{QQ2-1-64}{Parallel Execution}}{34}\relax 
+\doTocEntry\tocsubsection{8.5}{\csname a:TocLink\endcsname{1}{x1-560008.5}{QQ2-1-65}{Troubleshooting}}{34}\relax 
+\doTocEntry\tocsubsubsection{8.5.1}{\csname a:TocLink\endcsname{1}{x1-570008.5.1}{QQ2-1-66}{Structure Misclassification}}{34}\relax 
+\doTocEntry\tocsubsubsection{8.5.2}{\csname a:TocLink\endcsname{1}{x1-580008.5.2}{QQ2-1-67}{Slow Convergence}}{34}\relax 
+\doTocEntry\tocsubsubsection{8.5.3}{\csname a:TocLink\endcsname{1}{x1-590008.5.3}{QQ2-1-68}{Too Many Duplicates}}{35}\relax 
+\doTocEntry\tocsection{9}{\csname a:TocLink\endcsname{1}{x1-600009}{QQ2-1-69}{Parameter Tuning Guidelines}}{35}\relax 
+\doTocEntry\toclot{6}{\csname a:TocLink\endcsname{1}{x1-60001r6}{}{\ignorespaces Parameter tuning guidelines}}{table}\relax 
+\doTocEntry\tocsection{10}{\csname a:TocLink\endcsname{1}{x1-6100010}{QQ2-1-71}{References}}{38}\relax 
+\doTocEntry\toclikesection{}{\csname a:TocLink\endcsname{1}{x1-62000}{QQ2-1-72}{References}}{38}\relax 
+\doTocEntry\tocsection{11}{\csname a:TocLink\endcsname{1}{x1-6300011}{QQ2-1-73}{License}}{38}\relax 
+\doTocEntry\tocsection{A}{\csname a:TocLink\endcsname{1}{x1-64000A}{QQ2-1-74}{Complete Configuration Example}}{38}\relax 
+\doTocEntry\toclol{6}{\csname a:TocLink\endcsname{1}{listing-26}{}{\ignorespaces \numberline {4}Full input.json with all options}}{}\relax 
+\par 

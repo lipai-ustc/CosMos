@@ -1,0 +1,62 @@
+\contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Overview}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Key Features}{3}{subsection.1.2}%
+\contentsline {section}{\numberline {2}Theoretical Background}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Stochastic Surface Walking (SSW) Algorithm}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Algorithm Workflow}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Energy-Weighted Direction Sampling}{3}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Structure Comparison via SOAP Descriptors}{4}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Installation}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}System Requirements}{4}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Installation Steps}{4}{subsection.3.2}%
+\contentsline {section}{\numberline {4}Basic Usage}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Input Files}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Running CoSMoS}{5}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Output Configuration}{5}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Output Files}{6}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Debug Mode Output}{6}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Configuration Reference}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}input.json Structure}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Potential Configuration}{7}{subsection.5.2}%
+\contentsline {subsubsection}{\numberline {5.2.1}EAM Potential}{7}{subsubsection.5.2.1}%
+\contentsline {subsubsection}{\numberline {5.2.2}CHGNet}{7}{subsubsection.5.2.2}%
+\contentsline {subsubsection}{\numberline {5.2.3}DeepMD}{7}{subsubsection.5.2.3}%
+\contentsline {subsubsection}{\numberline {5.2.4}FAIRChem (Open Catalyst Project)}{7}{subsubsection.5.2.4}%
+\contentsline {subsubsection}{\numberline {5.2.5}VASP}{7}{subsubsection.5.2.5}%
+\contentsline {subsubsection}{\numberline {5.2.6}Custom Python Calculator}{7}{subsubsection.5.2.6}%
+\contentsline {subsection}{\numberline {5.3}Monte Carlo Parameters}{8}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Climbing Phase Parameters}{8}{subsection.5.4}%
+\contentsline {subsubsection}{\numberline {5.4.1}Gaussian Bias Potentials}{8}{subsubsection.5.4.1}%
+\contentsline {subsubsection}{\numberline {5.4.2}Random Direction Generation}{8}{subsubsection.5.4.2}%
+\contentsline {subsubsection}{\numberline {5.4.3}Random Direction Modes}{8}{subsubsection.5.4.3}%
+\contentsline {subsection}{\numberline {5.5}Mobile Control}{8}{subsection.5.5}%
+\contentsline {subsubsection}{\numberline {5.5.1}Mode 1: All Atoms Mobile (Default)}{8}{subsubsection.5.5.1}%
+\contentsline {subsubsection}{\numberline {5.5.2}Mode 2a: Specify Mobile Atoms}{9}{subsubsection.5.5.2}%
+\contentsline {subsubsection}{\numberline {5.5.3}Mode 2b: Specify Fixed Atoms}{9}{subsubsection.5.5.3}%
+\contentsline {subsubsection}{\numberline {5.5.4}Mode 3: Region-Based Control}{9}{subsubsection.5.5.4}%
+\contentsline {paragraph}{Spherical Region}{9}{lstlisting.-12}%
+\contentsline {paragraph}{Slab Region}{9}{lstlisting.-13}%
+\contentsline {paragraph}{Lower Region}{10}{lstlisting.-14}%
+\contentsline {paragraph}{Upper Region}{10}{lstlisting.-15}%
+\contentsline {subsubsection}{\numberline {5.5.5}Wall Potential}{10}{subsubsection.5.5.5}%
+\contentsline {section}{\numberline {6}Low-Dimensional Systems}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Geometry Classification}{10}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Structure Preparation}{11}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Vacuum Axis Handling}{11}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Examples}{11}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Example 1: AlCu Cluster with EAM}{11}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Example 2: C$_{60}$ with DeepMD}{11}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Example 3: Au Surface with FAIRChem (Custom Calculator)}{12}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Advanced Topics}{12}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Task Types}{12}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Custom Calculator Development}{12}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Custom Random Direction Generation}{12}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Parallel Execution}{13}{subsection.8.4}%
+\contentsline {subsection}{\numberline {8.5}Troubleshooting}{13}{subsection.8.5}%
+\contentsline {subsubsection}{\numberline {8.5.1}Structure Misclassification}{13}{subsubsection.8.5.1}%
+\contentsline {subsubsection}{\numberline {8.5.2}Slow Convergence}{13}{subsubsection.8.5.2}%
+\contentsline {subsubsection}{\numberline {8.5.3}Too Many Duplicates}{13}{subsubsection.8.5.3}%
+\contentsline {section}{\numberline {9}Parameter Tuning Guidelines}{14}{section.9}%
+\contentsline {section}{\numberline {10}References}{14}{section.10}%
+\contentsline {section}{\numberline {11}License}{14}{section.11}%
+\contentsline {section}{\numberline {A}Complete Configuration Example}{14}{appendix.A}%

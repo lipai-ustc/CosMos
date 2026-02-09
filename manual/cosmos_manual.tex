@@ -187,7 +187,7 @@ CoSMoS requires two input files in the working directory:
 
 \begin{enumerate}
     \item \texttt{input.json}: Calculation parameters configuration
-    \item \texttt{init.xyz}: Initial atomic structure in XYZ format
+    \item \texttt{init.xyz}: Initial atomic structure in XYZ format (default path, can be changed in configuration)
 \end{enumerate}
 
 \subsection{Running CoSMoS}
@@ -199,14 +199,43 @@ cd /path/to/working/directory
 cosmos
 \end{lstlisting}
 
+\subsection{Output Configuration}
+
+The \texttt{output} section controls output settings:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{directory} & Output directory name & "cosmos\_output" \\
+\texttt{rd\_xyz} & Enable output of random direction information & false \\
+\texttt{debug} & Enable debug mode for detailed logging & false \\
+\bottomrule
+\end{tabular}
+\caption{Output configuration parameters}
+\end{table}
+
 \subsection{Output Files}
-Results are saved in the \texttt{cosmos\_output/} directory:
+Results are saved in the specified output directory:
 
 \begin{itemize}
     \item \texttt{all\_minima.xyz}: All discovered minimum energy structures (trajectory format)
     \item \texttt{best\_str.xyz}: Lowest energy structure
     \item \texttt{cosmos\_log.txt}: Detailed search log with energies and algorithm status
+    \item \texttt{rd\_info.xyz}: Random direction information (only if \texttt{rd\_xyz} is true)
 \end{itemize}
+
+\subsection{Debug Mode Output}
+
+In debug mode, the log file contains detailed information for each optimization step:
+
+\begin{lstlisting}
+Step 1: E_total = -125.234567 eV, E_base = -125.500000 eV, E_bias = 0.250000 eV, E_wall = 0.015433 eV, fmax = 0.850000 eV/\AA
+Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV, E_wall = 0.013211 eV, fmax = 0.420000 eV/\AA
+...
+\end{lstlisting}
 
 %==============================================================================
 \section{Configuration Reference}
@@ -218,7 +247,9 @@ The configuration file is divided into several logical sections:
 \begin{lstlisting}[style=jsonStyle, caption={Minimal input.json example}]
 {
   "system": {
-    "name": "MySystem"
+    "name": "MySystem",
+    "task": "global_search",
+    "structure": "init.xyz"
   },
   "potential": {
     "type": "eam",
@@ -229,16 +260,23 @@ The configuration file is divided into several logical sections:
     "temperature": 300
   },
   "climbing": {
-    "gaussian_height": 0.1,
-    "gaussian_width": 0.2,
-    "max_gaussians": 14,
-    "optimizer": {
-      "max_steps": 500,
-      "fmax": 0.05
+    "gaussian": {
+      "height": 0.2,
+      "width": 0.2,
+      "Nmax": 20
+    },
+    "random_direction": {
+      "mode": ["thermo", "atomic"],
+      "ratio": [[[0.5, 0.5], 1]]
     }
   },
+  "optimizer": {
+    "max_steps": 500,
+    "fmax": 0.05
+  },
   "output": {
-    "directory": "cosmos_output"
+    "directory": "cosmos_output",
+    "debug": false
   }
 }
 \end{lstlisting}
@@ -303,43 +341,78 @@ Requires a \texttt{calculator.py} file in the working directory defining a \text
 \toprule
 \textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
 \midrule
-\texttt{steps} & Total MC steps & 100 \\
-\texttt{temperature} & Temperature (K) for Metropolis & 300 \\
+\texttt{steps} & Total MC steps & Required \\
+\texttt{temperature} & Temperature (K) for Metropolis & Required \\
 \bottomrule
 \end{tabular}
 \caption{Monte Carlo configuration parameters}
 \end{table}
 
 \subsection{Climbing Phase Parameters}
+
+\subsubsection{Gaussian Bias Potentials}
 \begin{table}[h]
 \centering
 \begin{tabular}{lll}
 \toprule
 \textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
 \midrule
-\texttt{gaussian\_height} & Gaussian bias height $w$ (eV) & 0.1 \\
-\texttt{gaussian\_width} & Step size $d_s$ (\AA) & 0.2 \\
-\texttt{max\_gaussians} & Max Gaussians per climb $H$ & 14 \\
-\texttt{optimizer.max\_steps} & Optimization max steps & 500 \\
-\texttt{optimizer.fmax} & Force convergence (eV/\AA) & 0.05 \\
+\texttt{gaussian.height} & Height of Gaussian bias potentials (w parameter) in eV & 0.2 \\
+\texttt{gaussian.width} & Width of Gaussian potentials (ds parameter) in \AA & 0.2 \\
+\texttt{gaussian.Nmax} & Maximum number of Gaussians per climbing (H parameter) & 20 \\
 \bottomrule
 \end{tabular}
-\caption{Climbing phase configuration parameters}
+\caption{Gaussian bias potential parameters}
 \end{table}
 
-\subsection{Mobility Control}
+\subsubsection{Random Direction Generation}
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{mode} & List of methods for generating random search directions & ["thermo", "atomic"] \\
+\texttt{ratio} & Weight configurations for combining multiple modes & [[[0.5, 0.5], 1]] \\
+\texttt{rotation\_param} & Dimer rotation parameter & 10 \\
+\texttt{element\_weights} & Element-specific weight factors & {} \\
+\bottomrule
+\end{tabular}
+\caption{Random direction generation parameters}
+\end{table}
 
-Mobility control allows constraining which atoms can move during optimization. Three modes are supported:
+\subsubsection{Random Direction Modes}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Mode} & \textbf{Description} \\
+\midrule
+\texttt{thermo} & Use temperature-based random vectors (Boltzmann distribution) \\
+\texttt{atomic} & Use energy-weighted random vectors based on per-atom energies \\
+\texttt{nl} & Combine base random with local rigid movement (Nl) \\
+\texttt{element} & Use element-weighted random vectors \\
+\texttt{python} & Use custom user-defined function \\
+\bottomrule
+\end{tabular}
+\caption{Random direction generation modes}
+\end{table}
+
+\subsection{Mobile Control}
+
+Mobile control allows constraining which atoms can move during optimization. Four modes are supported:
 
 \subsubsection{Mode 1: All Atoms Mobile (Default)}
 \begin{lstlisting}[style=jsonStyle]
-"mobility_control": null
+"mobile_control": {
+  "mode": "all"
+}
 \end{lstlisting}
-or omit the \texttt{mobility\_control} section entirely.
+or omit the \texttt{mobile\_control} section entirely.
 
 \subsubsection{Mode 2a: Specify Mobile Atoms}
 \begin{lstlisting}[style=jsonStyle]
-"mobility_control": {
+"mobile_control": {
   "mode": "indices_free",
   "indices_free": [10, 20, 25],
   "wall_strength": 10.0,
@@ -350,7 +423,7 @@ Only listed atoms (0-based indexing) are mobile; all others are fixed.
 
 \subsubsection{Mode 2b: Specify Fixed Atoms}
 \begin{lstlisting}[style=jsonStyle]
-"mobility_control": {
+"mobile_control": {
   "mode": "indices_fix",
   "indices_fix": [0, 1, 2],
   "wall_strength": 10.0,
@@ -359,9 +432,11 @@ Only listed atoms (0-based indexing) are mobile; all others are fixed.
 \end{lstlisting}
 Listed atoms are fixed; all others are mobile.
 
-\subsubsection{Mode 3a: Spherical Region}
+\subsubsection{Mode 3: Region-Based Control}
+
+\paragraph{Spherical Region}
 \begin{lstlisting}[style=jsonStyle]
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "sphere",
   "center": [5.0, 5.0, 5.0],
@@ -372,9 +447,9 @@ Listed atoms are fixed; all others are mobile.
 \end{lstlisting}
 Atoms within the sphere are mobile.
 
-\subsubsection{Mode 3b: Slab Region}
+\paragraph{Slab Region}
 \begin{lstlisting}[style=jsonStyle]
-"mobility_control": {
+"mobile_control": {
   "mode": "region",
   "region_type": "slab",
   "origin": [0.0, 0.0, 0.0],
@@ -386,6 +461,32 @@ Atoms within the sphere are mobile.
 }
 \end{lstlisting}
 Atoms between two parallel planes are mobile.
+
+\paragraph{Lower Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "lower",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms with coordinate $\le$ threshold along the specified axis are mobile.
+
+\paragraph{Upper Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "upper",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms with coordinate $\ge$ threshold along the specified axis are mobile.
 
 \subsubsection{Wall Potential}
 When \texttt{wall\_strength} $> 0$, a quadratic repulsive potential prevents mobile atoms from penetrating into immobile regions:
@@ -483,6 +584,14 @@ Configuration highlights:
 \section{Advanced Topics}
 %==============================================================================
 
+\subsection{Task Types}
+CoSMoS supports two task types:
+
+\begin{itemize}
+    \item \textbf{Global Search} (\texttt{global\_search}): Finds stable structures across the potential energy surface
+    \item \textbf{Structure Sampling} (\texttt{structure\_sampling}): Samples atomic structures around existing minima
+\end{itemize}
+
 \subsection{Custom Calculator Development}
 To use a custom ASE-compatible calculator:
 
@@ -498,6 +607,39 @@ from ase.calculators.emt import EMT
 
 # Define your calculator
 calculator = EMT()
+\end{lstlisting}
+
+\subsection{Custom Random Direction Generation}
+
+When \texttt{random\_direction.mode} is set to \texttt{"python"}, create a \texttt{generate\_random\_direction.py} file in your working directory:
+
+\begin{lstlisting}[language=Python, style=jsonStyle]
+import numpy as np
+from ase import Atoms
+
+def generate_random_direction(atoms: Atoms) -> np.ndarray:
+    """
+    Generate custom random direction vector for CoSMoS algorithm.
+    
+    Parameters:
+        atoms: ASE Atoms object representing current structure
+    
+    Returns:
+        N: 1D numpy array of size (3*n_atoms,) representing the direction vector
+    """
+    n_atoms = len(atoms)
+    N = np.random.randn(3 * n_atoms)  # Your custom logic here
+    return N
+\end{lstlisting}
+
+Then configure in \texttt{input.json}:
+
+\begin{lstlisting}[style=jsonStyle]
+"climbing": {
+  "random_direction": {
+    "mode": ["python"]
+  }
+}
 \end{lstlisting}
 
 \subsection{Parallel Execution}
@@ -600,35 +742,48 @@ For the full license text, see: \url{https://www.gnu.org/licenses/gpl-3.0.html}
 \begin{lstlisting}[style=jsonStyle, caption={Full input.json with all options}]
 {
   "system": {
-    "name": "CompleteExample"
+    "name": "CompleteExample",
+    "task": "global_search",
+    "structure": "init.xyz"
   },
   "potential": {
     "type": "deepmd",
-    "model": "dp_model.pb"
+    "model": "dp_model.pb",
+    "device": "cpu"
   },
   "monte_carlo": {
     "steps": 200,
     "temperature": 500
   },
   "climbing": {
-    "gaussian_height": 0.2,
-    "gaussian_width": 0.25,
-    "max_gaussians": 20,
-    "optimizer": {
-      "max_steps": 500,
-      "fmax": 0.03
+    "gaussian": {
+      "height": 0.2,
+      "width": 0.2,
+      "Nmax": 20
+    },
+    "random_direction": {
+      "mode": ["thermo", "atomic"],
+      "ratio": [[[0.5, 0.5], 1]],
+      "element_weights": {"Cu": 1.5, "Al": 1.0},
+      "rotation_param": 10
     }
   },
-  "mobility_control": {
+  "optimizer": {
+    "max_steps": 500,
+    "fmax": 0.03
+  },
+  "mobile_control": {
     "mode": "region",
     "region_type": "sphere",
-    "center": [10.0, 10.0, 10.0],
+    "center": "center",
     "radius": 8.0,
     "wall_strength": 15.0,
     "wall_offset": 1.5
   },
   "output": {
-    "directory": "my_output"
+    "directory": "my_output",
+    "rd_xyz": false,
+    "debug": true
   }
 }
 \end{lstlisting}
