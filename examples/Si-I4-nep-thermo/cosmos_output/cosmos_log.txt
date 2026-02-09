@@ -714,3 +714,12 @@ Step 73: Energy = -10122.602543 eV
 
 ------------- CoSMoS Step 74/200 -------------
 Random direction scheme 1 with modes ['thermo', 'atomic'] and weights [0.8, 0.2]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.352945 eV, P = 0.0003
+Found new minimum #74: E = -10122.249598 eV
+Step 74: Energy = -10122.249598 eV
+
+------------- CoSMoS Step 75/200 -------------
+Random direction scheme 0 with modes ['thermo', 'atomic'] and weights [0.9, 0.1]
