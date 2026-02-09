@@ -11,12 +11,19 @@
     "temperature": 300
   },
   "climbing": {
-    "gaussian_height": 0.15,
-    "gaussian_width": 0.25,
-    "max_gaussians": 15
+    "random_direction": {
+      "mode": ["thermo","nl"],
+      "ratio": [[[0.1,0.9],0.5],[[0.2,0.8],0.5]],
+      "rotation_param": 30
+    },
+    "gaussian":{
+      "height": 0.1,
+      "width": 0.1,
+      "Nmax": 20
+    }
   },
   "optimizer": {
-    "max_steps": 150,
+    "max_steps": 100,
     "fmax": 0.05
   },
   "mobility_control": {
@@ -30,7 +37,8 @@
     "wall_offset": 2.0
   },
   "output": {
-    "directory": "cosmos_output"
-  },
-  "debug": false
+    "directory": "cosmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
 }

@@ -11,18 +11,16 @@
     "steps": 100,
     "temperature": 500
   },
-  "random_direction": {
-    "mode": ["thermo","nl","atomic"],
-    "ratio": [[[0.4,0.4,0.2],0.5],[[0.2,0.0,0.8],0.5]]
-  },
   "climbing": {
+    "random_direction": {
+      "mode": ["thermo","nl"],
+      "ratio": [[[0.1,0.9],0.5],[[0.2,0.8],0.5]],
+      "rotation_param": 30
+    },
     "gaussian":{
-      "height": 0.2,
+      "height": 0.1,
       "width": 0.1,
       "Nmax": 20
-    },
-    "dimer_rotation":{
-      "quadra_param": 50
     }
   },
   "optimizer": {
@@ -30,16 +28,11 @@
     "fmax": 0.05
   },
   "mobile_control": {
-    "mode": "region",
-    "region_type":"sphere",
-    "center":   "center",
-    "radius":8,
-    "wall_strength": 10.0,
-    "wall_offset": 2.0
+    "mode": "all"
   },
   "output": {
     "directory": "cosmos_output",
-    "rd_xyz": true
-  },
-  "debug": true
+    "rd_xyz": true,
+    "debug": false
+  }
 }
