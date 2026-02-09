@@ -721,3 +721,57 @@ Step 74: Energy = -10122.249800 eV
 
 ------------- CoSMoS Step 75/200 -------------
 Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.000175 eV, P = 1.0000
+Found new minimum #75: E = -10122.602539 eV
+Step 75: Energy = -10122.602539 eV
+
+------------- CoSMoS Step 76/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Reject new basin structure: ΔE = 0.453855 eV, P = 0.0000
+Found new minimum #76: E = -10122.148683 eV
+Step 76: Energy = -10122.148683 eV
+
+------------- CoSMoS Step 77/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.000446 eV, P = 1.0000
+Found new minimum #77: E = -10122.602985 eV
+Step 77: Energy = -10122.602985 eV
+
+------------- CoSMoS Step 78/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000863 eV, P = 0.9802
+Found new minimum #78: E = -10122.602122 eV
+Step 78: Energy = -10122.602122 eV
+
+------------- CoSMoS Step 79/200 -------------
+Random direction scheme 1 with modes ['thermo', 'nl'] and weights [0.2, 0.8]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = 0.000520 eV, P = 0.9880
+Found new minimum #79: E = -10122.601602 eV
+Step 79: Energy = -10122.601602 eV
+
+------------- CoSMoS Step 80/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]
+
+--- Climb end ---
+ n_gaussian=20, reached maximum Gaussians
+Accept new basin structure: ΔE = -0.001374 eV, P = 1.0000
+Found new minimum #80: E = -10122.602976 eV
+Step 80: Energy = -10122.602976 eV
+
+------------- CoSMoS Step 81/200 -------------
+Random direction scheme 0 with modes ['thermo', 'nl'] and weights [0.1, 0.9]

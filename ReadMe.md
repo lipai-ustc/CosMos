@@ -13,6 +13,8 @@
 ## Overview
 CoSMoS (Global Structure Search Program) is a tool for finding stable atomic structures using advanced optimization algorithms.
 
+*lipai@mail.sim.ac.cn*
+
 ## Installation
 
 ### Prerequisites
@@ -20,8 +22,12 @@ CoSMoS (Global Structure Search Program) is a tool for finding stable atomic str
 - pip (Python package manager)
 - ASE>=3.26.0 (Atomic Simulation Environment)
 - dscribe>=2.1.0 (installed automatically via setup.py)
-- **NequIP** (recommended for default calculator): `pip install nequip`
-- Optional calculators: deepmd-kit, fairchem-core, chgnet (install as needed)
+
+- Optional calculators:
+  - *[NequIP](https://github.com/mir-group/nequip)** (recommended for default calculator)
+  - **[DeepMD-kit](https://github.com/deepmodeling/deepmd-kit)**
+  - **[FAIRChem/OCP](https://github.com/facebookresearch/fairchem)**
+  - **[CHGNet](https://github.com/CederGroupHub/chgnet)**
 
 ### Install from source
 ```bash
@@ -39,10 +45,9 @@ pip install .
 # (Optional) Install in development mode (editable)
 # pip install -e .
 
-# Install NequIP (recommended for default calculator)
-pip install nequip
-
 # (Optional) Install other calculators as needed
+# Install NequIP (recommended for default calculator)
+# pip install nequip
 # pip install deepmd-kit      # For DeepMD potential
 # pip install fairchem-core   # For FAIRChem/OCP models
 # pip install chgnet          # For CHGNet models
@@ -52,8 +57,8 @@ pip install nequip
 
 ### Basic Usage
 CoSMoS requires an initial structure file and optionally a configuration file:
-1. `init.xyz` - Initial structure file (required)
-2. `input.json` - Configuration file (optional - uses defaults with NequIP from NEQUIP_MODEL)
+1. `init.xyz` - Initial structure file
+2. `input.json` - Configuration file
 
 Run with default NequIP calculator:
 ```bash
@@ -86,7 +91,7 @@ cosmos
 ## Input File Format
 
 ### Low-Dimensional Structure Preparation
-For low-dimensional systems (clusters / wires / slabs), **you must place the structural center near the center of the simulation box** before running CoSMoS. The internal geometry classification in `cosmos_search.py` detects vacuum layers by measuring distances from atoms to the cell boundaries. If a low-dimensional structure is located near the origin instead of the box center, the algorithm may misclassify the system (e.g., treating a cluster as bulk).
+For low-dimensional systems (clusters/wires/slabs), **you must place the structural center near the center of the simulation box** before running CoSMoS. The internal geometry classification in `cosmos_search.py` detects vacuum layers by measuring distances from atoms to the cell boundaries. If a low-dimensional structure is located near the origin instead of the box center, the algorithm may misclassify the system (e.g., treating a cluster as bulk).
 
 Practical recommendations:
 - **0D cluster**: Place the cluster roughly at `(Lx/2, Ly/2, Lz/2)`.
@@ -100,7 +105,7 @@ If the structure is not centered, CoSMoS may choose inappropriate settings for m
 #### System and Potential
 - `system`: System information
   - `name`: System name (optional)
-  - `task`: Task type - `"global_search"` or `"structure_sampling"` (required)
+  - `task`: Task type - `"global_search"` or `"structure_sampling"`
   - `structure`: Path to initial structure file (optional, default: `"init.xyz"`)
 
 - `potential`: Potential settings (optional - defaults to NequIP from NEQUIP_MODEL environment variable)
@@ -127,24 +132,7 @@ export NEQUIP_MODEL=/path/to/deployed_model.pth
 cosmos
 ```
 
-**Atomic Energy Calculator (for atomic-mode random directions):**
-When using `random_direction.mode: "atomic"` or `"atomic_plus_nl"`, per-atom energies are required:
-1. **Specified calculator**: If `atomic_energy_calculator` is configured in the `random_direction` section, uses that calculator
-2. **Primary calculator fallback**: If not specified, uses the main potential calculator
-3. **DeepMD**: Automatically uses custom wrapper with per-atom energy support
-4. **Error handling**: Raises an error if the calculator does not support `get_potential_energies()`
 
-Example atomic energy calculator configuration:
-```json
-"random_direction": {
-  "mode": "atomic_plus_nl",
-  "atomic_energy_calculator": {
-    "type": "nequip",
-    "model": "/path/to/atomic_energy_model.pth",
-    "device": "cpu"
-  }
-}
-```
 
 **Supported Calculator Types:**
 
@@ -261,6 +249,25 @@ Requires a `calculator.py` file in the working directory.
       - If not specified, uses the main potential calculator
       - Same format as `potential` section (with `type`, `model`, etc.)
 
+**Atomic Energy Calculator (for atomic-mode random directions):**
+When using `"atomic"` as one of the random direction modes, per-atom energies are required:
+1. **Specified calculator**: If `atomic_energy_calculator` is configured in the `random_direction` section, uses that calculator
+2. **Primary calculator fallback**: If not specified, uses the main potential calculator
+3. **DeepMD**: Automatically uses custom wrapper with per-atom energy support
+4. **Error handling**: Raises an error if the calculator does not support `get_potential_energies()`
+
+Example:
+```json
+"random_direction": {
+  "mode": ["thermo","atomic", "nl"],
+  "ratio": [[[0.1,0.9],0.5],[[0.2,0.8],0.5]],
+  "atomic_energy_calculator": {
+    "type": "nequip",
+    "model": "/path/to/atomic_energy_model.pth",
+    "device": "cpu"
+  }
+}
+```
 #### Optimizer Layer
 - `optimizer`: Local optimization settings
   - `max_steps`: Maximum optimization steps (default: 500)
@@ -302,57 +309,7 @@ def generate_random_direction(atoms: Atoms) -> np.ndarray:
 
 The function receives the current atomic structure and must return a flattened direction vector. You have full access to atomic positions, chemical symbols, energies, and any other ASE Atoms attributes to implement custom logic.
 
-##### Complete Configuration Example
-Here is a comprehensive example showing all major configuration options:
 
-```json
-{
-  "system": {
-    "name": "AlCu_alloy",
-    "task": "global_search",
-    "structure": "init.xyz"
-  },
-  "potential": {
-    "type": "nequip",
-    "model": "deployed_model.pth",
-    "device": "cpu"
-  },
-  "monte_carlo": {
-    "steps": 100,
-    "temperature": 300
-  },
-  "climbing": {
-    "gaussian_height": 0.2,
-    "gaussian_width": 0.2,
-    "max_gaussians": 20
-  },
-  "optimizer": {
-    "max_steps": 500,
-    "fmax": 0.05
-  },
-  "random_direction": {
-    "mode": "atomic_plus_nl",
-    "element_weights": {"Cu": 1.5, "Al": 1.0},
-    "atomic_energy_calculator": {
-      "type": "nequip",
-      "model": "atomic_energy_model.pth",
-      "device": "cpu"
-    }
-  },
-  "mobile_control": {
-    "mode": "region",
-    "region_type": "sphere",
-    "center": [5.0, 5.0, 5.0],
-    "radius": 10.0,
-    "wall_strength": 10.0,
-    "wall_offset": 2.0
-  },
-  "output": {
-    "directory": "cosmos_output"
-  },
-  "debug": false
-}
-```
 
 #### Mobile Control Layer (Optional)
 The mobile control feature allows you to constrain which atoms can move during optimization. **By default, all atoms are mobile.**
@@ -478,6 +435,7 @@ When using mobile control with `wall_strength > 0`, a quadratic repulsive wall p
   "directory": "cosmos_output",
   "debug": true
 }
+```
 
 In debug mode, the log file will contain detailed information for each optimization step:
 ```
@@ -496,6 +454,55 @@ Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV,
 | `w` | Gaussian potential height (eV) | 0.2 |
 | `temperature` | Temperature (K) | Required |
 | `mobile_control` | Mobile control configuration | `{"mode": "all"}` |
+
+##### Complete Configuration Example
+Here is a comprehensive example showing all major configuration options:
+
+```json
+{
+  "system": {
+    "name": "Si-I4",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "nep",
+    "model": "Si.txt"
+  },
+  "monte_carlo": {
+    "steps": 200,
+    "temperature": 500
+  },
+  "climbing": {
+    "random_direction": {
+      "mode": ["thermo","atomic"],
+      "ratio": [[[0.1,0.9],0.5],[[0.2,0.8],0.5]],
+      "rotation_param": 30
+    },
+    "gaussian":{
+      "height": 0.1,
+      "width": 0.1,
+      "Nmax": 20
+    }
+  },
+  "optimizer": {
+    "max_steps": 100,
+    "fmax": 0.05
+  },
+  "mobile_control": {
+    "mode": "region",
+    "region_type":"sphere",
+    "center":   "center",
+    "radius":6,
+    "wall_strength": 10.0,
+    "wall_offset": 2.0
+  },
+  "output": {
+    "directory": "cosmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
+}
+```
 
 ## Examples
 Example directories are provided in the `examples/` folder:
