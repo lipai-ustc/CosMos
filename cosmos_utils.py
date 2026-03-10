@@ -127,12 +127,15 @@ def load_potential(potential_config, custom_atomic=False):
         else:    
             from deepmd.calculator import DP
             return DP(model=model_path)
-    elif pot_type == 'nep':
-        from calorine.calculators import CPUNEP
+    elif pot_type == 'nep-cpu' or pot_type == 'nep-gpu' or pot_type == 'nep':
+        if pot_type== 'nep-cpu' or pot_type == 'nep':
+            from calorine.calculators import CPUNEP
+        elif pot_type == 'nep-gpu':
+            from calorine.calculators import GPUNEP
         model_path = potential_config.get('model')
         if model_path and not os.path.isabs(model_path):
             model_path = os.path.join(cwd, model_path)
-        return CPUNEP(model_path)
+        return CPUNEP(model_path) if pot_type == 'nep-cpu' or pot_type == 'nep' else GPUNEP(model_path)
     elif pot_type == 'lammps':
         from ase.calculators.lammpslib import LAMMPSlib
         # Parse LAMMPS potential configuration
@@ -482,7 +485,8 @@ class DeepMDCalculatorWithAtomicEnergy(Calculator):
             cells=cell, 
             atom_types=atype, 
             fparam=fparam, 
-            aparam=aparam
+            aparam=aparam,
+            atomic=True
         )
         
         # Store standard properties
@@ -540,6 +544,7 @@ def print_xyz(atoms, filename, energy, bias_energy, *args, **kwargs):
     # kwargs
     for key, value in kwargs.items():
         if len(value) != n_atoms:
+            print("error:", key, value,len(value), n_atoms)
             raise ValueError(f"{key} must have n_atoms elements")
         params.append((value, key))
     
@@ -551,3 +556,40 @@ def print_xyz(atoms, filename, energy, bias_energy, *args, **kwargs):
         atoms_copy.info['name'] = param_title
         atoms_copy.arrays['forces'] =  param_list
         write("xyz/" + filename, atoms_copy, append=True)
+
+def get_displace(N_in, mobile_mask, n_mobile, average_dr, max_dr):
+    # get displacement vector for mobile atoms
+    dist = N_in.reshape(-1, 3)
+    #return dist
+
+    dr = np.linalg.norm(dist, axis=1)
+    mobile_dr = dr.copy()
+    for i in range(len(mobile_dr)):
+        if not mobile_mask[i]:
+            mobile_dr[i] = 0
+    
+    actual_average_dr = np.sum(mobile_dr) / n_mobile
+    
+    scale_factor = average_dr / actual_average_dr
+    dist *= scale_factor
+    
+    # Check maximum displacement and scale if needed
+    actual_max_dr = np.max(mobile_dr*scale_factor)
+    if actual_max_dr > max_dr:
+        scale_factor = max_dr / actual_max_dr
+        dist *= scale_factor
+
+    #print("dist:  :",dist,np.linalg.norm(dist))
+    return dist
+
+def calc_average_max_displace(dist, mobile_mask, n_mobile):
+    # get average maximum displacement vector for mobile atoms
+
+    dr = np.linalg.norm(dist, axis=1)
+    mobile_dr = dr.copy()
+    for i in range(len(mobile_dr)):
+        if not mobile_mask[i]:
+            mobile_dr[i] = 0
+    actual_average_dr = np.sum(mobile_dr) / n_mobile
+    actual_max_dr = np.max(mobile_dr)
+    return actual_average_dr, actual_max_dr

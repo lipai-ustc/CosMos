@@ -10,11 +10,10 @@ class BiasCalculator(Calculator):
     """
     implemented_properties = ['energy', 'forces']
 
-    def __init__(self, base_calculator, mobile_mask, ds, mobile_region, wall_strength, wall_offset):
+    def __init__(self, base_calculator, mobile_mask, mobile_region, wall_strength, wall_offset):
         super().__init__()
         self.base_calc = base_calculator  # Original potential energy calculator
         self.mobile_mask = mobile_mask  # Boolean mask for mobile atoms
-        self.ds = ds  # Step size parameter, used for Gaussian potential width
         self.mobile_region = mobile_region  # Region for mobile atoms
         self.wall_strength = wall_strength  # Strength of wall potential
         self.wall_offset = wall_offset  # Offset of wall potential
@@ -49,17 +48,17 @@ class BiasCalculator(Calculator):
         F_bias = np.zeros_like(R)  # (3N,)
         if current_flag=="gaussian":
             for g_param in self.gaussian_params:
-                # g_param should be a tuple or list containing (d, R1, w)
+                # g_param should be a tuple or list containing (d, R1, gh)
                 try:
-                    d, R1, w = g_param
+                    d, R1, gh,gw = g_param
                 except ValueError:
                     raise ValueError(f"Invalid Gaussian parameter format: {g_param}")
                 dr = R - R1
                 # Calculate projection: (R - R1)·Nn
                 proj = np.dot(dr, d)
-                # Gaussian width uses self.ds (step size); equation (6) in the paper
-                E_bias += w * np.exp(-(proj**2) / (2 * self.ds**2))
-                F_bias += w * np.exp(-(proj**2) / (2 * self.ds**2)) * (proj / self.ds**2) * d
+                # Gaussian width uses self.gw (step size); equation (6) in the paper
+                E_bias += gh * np.exp(-(proj**2) / (2 * gw**2))
+                F_bias += gh * np.exp(-(proj**2) / (2 * gw**2)) * (proj / gw**2) * d
 
             self.results['E_gaussian'] = E_bias
             self.results['F_gaussian'] = F_bias.reshape((-1, 3))
@@ -72,7 +71,7 @@ class BiasCalculator(Calculator):
             dr = R - R0
             # Calculate projection: (R - d)·(a·Nn + b·Nn)
             proj = np.dot(dr, N0)
-            # Quadratic width uses self.ds (step size); equation (7) in the paper
+            # equation (7) in the paper
             E_bias = -(a/2) * proj**2
             F_bias =  (a/2) * proj * N0
 

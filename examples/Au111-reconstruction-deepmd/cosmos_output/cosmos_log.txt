@@ -1,0 +1,57 @@
+cosmos unknown (Linux 4.18.0-553.94.1.el8_10.x86_64)
+executed on             Linux date 2026.03.10  10:08:10
+running on    192 total cores
+Python 3.10.19, ASE 3.27.0, dscribe 2.1.2
+
+
+===================================    CoSMoS Input Configuration    ================================
+
+
+System information:
+  System name      : Au111
+  Task type        : global_search
+  Structure file   : /public/home/lipai/share/apps/CosMos/examples/Au111-reconstruction-deepmd/init.xyz
+  Geometry type    : slab
+
+Potential information:
+  Potential type   : deepmd
+  Potential model  : /public/home/lipai/share/apps/CosMos/examples/Au111-reconstruction-deepmd/Au-PBE-novdw-v2.pb
+
+Monte Carlo information:
+  Monte Carlo steps: 1000
+  Temperature (K)  : 500
+
+Random Direction information:
+  RD mode          : ['thermo', 'atomic']
+  Scheme 0 : mode ratio=[0.05, 0.95] with Posibility 0.5
+  Scheme 1 : mode ratio=[0.1, 0.9] with Posibility 0.5
+  AE factor        : 200
+  Dimer rotation a : 20
+
+Gaussian information:
+  Gaussian height w: 5
+  Max Gaussians H  : 20
+
+Displace information:
+  Displace average dr: 0.1
+  Displace max dr: : 0.2
+
+Optimizer information:
+  Optimizer steps  : 100
+  Optimizer fmax   : 0.02
+  Mobile control : None
+
+Output information:
+  Output dir       : cosmos_output
+  RD info          : True
+  Debug mode       : False
+
+No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies.
+
+
+=====================================    Start of CoSMoS Search    ==================================
+
+Found new minimum #0: E = -22178.545917 eV
+
+------------- CoSMoS Step 1/1000 -------------
+Random direction scheme 1 with modes ['thermo', 'atomic'] and weights [0.1, 0.9]

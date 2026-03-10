@@ -95,6 +95,7 @@ def main() -> None:
     rd_mode = rd_config.get('mode', ['thermo','atomic']) # Default method according to the original SSW algorithm
     rd_ratio = rd_config.get('ratio', [[[0.5,0.5],1]])
     quadra_param=rd_config.get('rotation_param', 10)
+    AE_factor = rd_config.get('AE_factor', 4.0)
 
     valid_modes = {'thermo',            # Temperature-based default scale (Boltzmann distribution)
                    'atomic',          # 'thermo' * atomic_energy_scale
@@ -131,17 +132,24 @@ def main() -> None:
             rd_info=f"No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies."
     else:
         atomic_energy_calculator = None
-                  
-    random_direction={'mode': rd_mode, 'ratio': rd_ratio, 'element_weights': element_weights, 'quadra_param': quadra_param}
+      
+    random_direction={'mode': rd_mode, 'ratio': rd_ratio, 'element_weights': element_weights, 'quadra_param': quadra_param, 'AE_factor': AE_factor} 
 
     # 6. Get Climbing configuration (optional)
 
     gaussian_config=climb_config.get('gaussian',{})
     gaussian_height = gaussian_config.get('height', 0.2)    # w parameter
-    gaussian_width  = gaussian_config.get('width', 0.2)     # ds parameter
+    #gaussian_width  = gaussian_config.get('width', 0.2)     # ds parameter
     max_gaussians   = gaussian_config.get('Nmax', 20)       # H parameter
     
-    gaussian={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
+    #gaussian={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
+    gaussian={'gaussian_height': gaussian_height, 'max_gaussians': max_gaussians}
+
+    displace_config=climb_config.get('displace',{})
+    average_dr = displace_config.get('average_dr', 0.1)    # displace average step size parameter
+    max_dr = displace_config.get('max_dr', 0.2)     # displace max step size parameter
+    
+    displace={'average_dr': average_dr, 'max_dr': max_dr}
 
     # 7. Get Optimizer configuration (optional)
     optimizer_config = config.get('optimizer',{})
@@ -256,11 +264,14 @@ def main() -> None:
         print(f'  Scheme {i} : mode ratio={ratios[0]} with Posibility {ratios[-1]}')
     if element_weights:  # Empty dict evaluates to False
         print(f'  Element weights  : {element_weights}')
+    print(f'  AE factor        : {AE_factor}')
     print(f'  Dimer rotation a : {quadra_param}')
     print(f'\nGaussian information:')
     print(f'  Gaussian height w: {gaussian_height}')
-    print(f'  Gaussian width ds: {gaussian_width}')
     print(f'  Max Gaussians H  : {max_gaussians}')
+    print(f'\nDisplace information:')
+    print(f'  Displace average dr: {average_dr}')
+    print(f'  Displace max dr: : {max_dr}')
     print(f'\nOptimizer information:')
     print(f'  Optimizer steps  : {max_steps}')
     print(f'  Optimizer fmax   : {fmax}')
@@ -299,6 +310,7 @@ def main() -> None:
         monte_carlo=monte_carlo,
         random_direction=random_direction,
         gaussian=gaussian,
+        displace=displace,
         optimizer=optimizer,
         mobile_control=mobile_control,
         output=output

@@ -1,0 +1,21 @@
+Loading gpumd/4.6.0
+  Loading requirement: nvhpc/23.1-cuda11.8
+2026-03-10 10:02:55.883652: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE4.1 SSE4.2 AVX AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING:tensorflow:From /public/home/lipai/share/apps/anaconda3/envs/deepmd_gpu/lib/python3.10/site-packages/tensorflow/python/compat/v2_compat.py:108: disable_resource_variables (from tensorflow.python.ops.variable_scope) is deprecated and will be removed in a future version.
+Instructions for updating:
+non-resource variables are not supported in the long term
+WARNING:root:To get the best performance, it is recommended to adjust the number of threads by setting the environment variables OMP_NUM_THREADS, TF_INTRA_OP_PARALLELISM_THREADS, and TF_INTER_OP_PARALLELISM_THREADS. See https://deepmd.rtfd.io/parallelism/ for more information.
+DeePMD-kit: Successfully load libcudart.so.11.0
+2026-03-10 10:02:57.360299: E tensorflow/core/framework/node_def_util.cc:676] NodeDef mentions attribute grad_a which is not in the op definition: Op<name=MatMul; signature=a:T, b:T -> product:T; attr=transpose_a:bool,default=false; attr=transpose_b:bool,default=false; attr=T:type,allowed=[DT_BFLOAT16, DT_HALF, DT_FLOAT, DT_DOUBLE, DT_INT32, DT_INT64, DT_UINT8, DT_UINT16, DT_UINT32, DT_UINT64, DT_COMPLEX64, DT_COMPLEX128]> This may be expected if your graph generating binary is newer  than this binary. Unknown attributes will be ignored. NodeDef: {{node load/filter_type_0/MatMul}}
+2026-03-10 10:02:57.385041: I tensorflow/compiler/mlir/mlir_graph_optimization_pass.cc:382] MLIR V1 optimization pass is not enabled
+WARNING:tensorflow:From /public/home/lipai/share/apps/anaconda3/envs/deepmd_gpu/lib/python3.10/site-packages/deepmd/utils/batch_size.py:62: is_gpu_available (from tensorflow.python.framework.test_util) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use `tf.config.list_physical_devices('GPU')` instead.
+WARNING:tensorflow:From /public/home/lipai/share/apps/anaconda3/envs/deepmd_gpu/lib/python3.10/site-packages/deepmd/utils/batch_size.py:62: is_gpu_available (from tensorflow.python.framework.test_util) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use `tf.config.list_physical_devices('GPU')` instead.
+WARNING:deepmd.utils.batch_size:You can use the environment variable DP_INFER_BATCH_SIZE tocontrol the inference batch size (nframes * natoms). The default value is 1024.
+WARNING:deepmd.utils.batch_size:You can use the environment variable DP_INFER_BATCH_SIZE tocontrol the inference batch size (nframes * natoms). The default value is 1024.
+2026-03-10 10:03:17.411258: E tensorflow/core/framework/node_def_util.cc:676] NodeDef mentions attribute grad_a which is not in the op definition: Op<name=MatMul; signature=a:T, b:T -> product:T; attr=transpose_a:bool,default=false; attr=transpose_b:bool,default=false; attr=T:type,allowed=[DT_BFLOAT16, DT_HALF, DT_FLOAT, DT_DOUBLE, DT_INT32, DT_INT64, DT_UINT8, DT_UINT16, DT_UINT32, DT_UINT64, DT_COMPLEX64, DT_COMPLEX128]> This may be expected if your graph generating binary is newer  than this binary. Unknown attributes will be ignored. NodeDef: {{node load/filter_type_0/MatMul}}
+slurmstepd: error: *** JOB 36665 ON master CANCELLED AT 2026-03-10T10:06:13 ***

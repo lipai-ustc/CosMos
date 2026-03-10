@@ -1,0 +1,63 @@
+cosmos unknown (Linux 4.18.0-553.el8_10.x86_64)
+executed on             Linux date 2026.03.09  15:19:18
+running on    192 total cores
+Python 3.11.15, ASE 3.27.0, dscribe unknown
+
+
+===================================    CoSMoS Input Configuration    ================================
+
+
+System information:
+  System name      : Si-I4
+  Task type        : global_search
+  Structure file   : /public/home/lipai/share/apps/CosMos/examples/Si-I4-deepmd/init.xyz
+  Geometry type    : bulk
+
+Potential information:
+  Potential type   : deepmd
+  Potential model  : /public/home/lipai/share/apps/CosMos/examples/Si-I4-deepmd/Si.pb
+
+Monte Carlo information:
+  Monte Carlo steps: 200
+  Temperature (K)  : 500
+
+Random Direction information:
+  RD mode          : ['thermo', 'atomic']
+  Scheme 0 : mode ratio=[0.05, 0.95] with Posibility 0.5
+  Scheme 1 : mode ratio=[0.1, 0.9] with Posibility 0.5
+  AE factor        : 4.0
+  Dimer rotation a : 50
+
+Gaussian information:
+  Gaussian height w: 0.4
+  Max Gaussians H  : 20
+
+Displace information:
+  Displace average dr: 0.1
+  Displace max dr: : 0.2
+
+Optimizer information:
+  Optimizer steps  : 100
+  Optimizer fmax   : 0.05
+
+Constraint information:
+  Mobile mode    : region
+  Number of Mobile/All atoms     : 46/1004
+  Mobile region  : {'type': 'sphere', 'center': [13.6249, 13.8426, 13.9802], 'radius': 6}
+  Wall strength    : 10.0
+  Wall offset      : 2.0
+
+Output information:
+  Output dir       : cosmos_output
+  RD info          : True
+  Debug mode       : False
+
+No atomic_energy_calculator specified. Using primary potential calculator for per-atom energies.
+
+
+=====================================    Start of CoSMoS Search    ==================================
+
+Found new minimum #0: E = -10128.397566 eV
+
+------------- CoSMoS Step 1/200 -------------
+Random direction scheme 1 with modes ['thermo', 'atomic'] and weights [0.1, 0.9]

@@ -7,7 +7,7 @@ from ase.io import write as ase_write
 from ase.constraints import FixAtoms
 from ase.optimize import LBFGS
 from bias_calculator import BiasCalculator
-from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance, print_xyz
+from cosmos_utils import is_duplicate_by_desc_and_energy, periodic_distance, print_xyz, get_displace, calc_average_max_displace
 class CoSMoSSearch:
     def __init__(
         self,
@@ -18,6 +18,7 @@ class CoSMoSSearch:
         monte_carlo,         # Dict with 'steps', 'temperature'
         random_direction,    # Dict with 'mode', 'element_weights', 'atomic_calculator'
         gaussian,            # Dict with 'gaussian_height', 'gaussian_width', 'max_gaussians'
+        displace,            # Dict with 'average_dr', 'max_dr'
         optimizer,           # Dict with 'max_steps', 'fmax'
         mobile_control,    # Dict with 'mobile_atoms', 'mobile_region', 'wall_strength', 'wall_offset'
         output,          # Output directory
@@ -44,10 +45,12 @@ class CoSMoSSearch:
         self.element_weights = random_direction['element_weights']
         self.element_scales = np.repeat([self.element_weights.get(symbol, 1.0) for symbol in self.atoms.symbols], 3)  #[1,2,3] -> [1,1,1,2,2,2,3,3,3]
         self.quadra_a = random_direction['quadra_param']
+        self.AE_factor = random_direction['AE_factor']
         # Climbing parameters
-        self.gaussian_width = gaussian['gaussian_width']   # Step size (also Gaussian width)
         self.gaussian_height = gaussian['gaussian_height']   # Gaussian potential height
         self.H = gaussian['max_gaussians']     # Max number of Gaussians
+        self.average_dr = displace['average_dr']    # displace average step size parameter
+        self.max_dr = displace['max_dr']     # displace max step size parameter
         
         # Optimizer parameters
         self.opt_fmax = optimizer['fmax']
@@ -96,7 +99,6 @@ class CoSMoSSearch:
         self.bias_calc = BiasCalculator(
             base_calculator=self.base_calc,
             mobile_mask=self.mobile_mask,
-            ds=self.gaussian_width,
             mobile_region=self.mobile_region,
             wall_strength=self.wall_strength,
             wall_offset=self.wall_offset
@@ -241,22 +243,23 @@ class CoSMoSSearch:
             element_mobile_indices = [i for i in mobile_indices if symbols[i] == element]
             if len(element_mobile_indices) > 0:
                 element_energies = atomic_energies[element_mobile_indices]
-                reference_energies[element] = np.min(element_energies)
+                reference_energies[element] = np.max(element_energies)
             else:
                 # No mobile atoms of this element, use 0 as reference
-                reference_energies[element] = 0.0
+                reference_energies[element] = 10000.0
         
         # Normalize energies relative to element-specific references
+        # This ensures that high-energy atoms get larger scales
         normalized_energies = np.zeros(self.n_atoms)
         for i, symbol in enumerate(symbols):
-            normalized_energies[i] = atomic_energies[i] - reference_energies[symbol]
-        
-        # Ensure all normalized energies are non-negative (they should be by construction)
-        normalized_energies = np.maximum(normalized_energies, 0.0)
+            temp_atomic_energy=atomic_energies[i]
+            if isinstance(temp_atomic_energy, list) or isinstance(temp_atomic_energy, np.ndarray):
+                temp_atomic_energy=temp_atomic_energy[0]
+            normalized_energies[i] = temp_atomic_energy - reference_energies[symbol]  # negative
         
         # Calculate scales using exp(E_atom)
         # Add small offset to avoid issues with very small energies
-        scales = 2 / (1 + np.exp(-4*normalized_energies))-1   # scales = 2*sigmoid(4*normalized_energies)
+        scales = np.exp(normalized_energies * self.AE_factor)   # 
         # Set scales of masked (immobile) atoms to 0
         if self.mobile_mask is not None:
             scales[~self.mobile_mask] = 0.0
@@ -472,26 +475,37 @@ class CoSMoSSearch:
             basin_energy = self._get_real_energy(basin_atoms)  # already relaxed
             N0 = self._generate_random_direction(basin_atoms)
             if self.output_xyz:
-                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0,N0=N0.reshape(-1,3))
-
+                displace0=get_displace(N0.copy(),self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr) # 很奇怪这里如果不copy会影响rotation！！！
+                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0, displace = displace0)
+                
             climb_atoms = basin_atoms.copy() # climbing structure
             gaussian_params = []
             for n in range(1, self.H + 1):
                 # CRITICAL: Move structure along direction N before adding bias potential
-                # This is Step 3 in the SSW paper: R^{n-1} displacement by ds along N_i^n
+                # This is Step 3 in the SSW paper: R^{n-1} displacement by dr along N_i^n
                 # Add new Gaussian potential at the CURRENT position (before displacement)
-                # THEN displace structure along direction N by ds
+                # THEN displace structure along direction N by dr
                 # Locally optimize on modified potential energy surface
                 N = self._bias_dimer_rotation_ase(climb_atoms, N0)
-                gaussian_params.append((N.copy(),climb_atoms.positions.flatten(),self.gaussian_height))  #(d, R1, w)
+                displace = get_displace(N,self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr) 
+                Norm_dist = np.linalg.norm(displace)
+                gaussian_params.append((N.copy(),climb_atoms.positions.flatten(),self.gaussian_height, Norm_dist*2))  #(d, R1, gh,gw)
+
                 climb_atoms.calc = self.bias_calc
                 climb_atoms.calc.reset_gaussians(gaussian_params)
-                climb_atoms_positions = climb_atoms.get_positions().flatten() +self.gaussian_width * N
-                climb_atoms.set_positions(climb_atoms_positions.reshape(-1, 3))
+
+                climb_atoms.set_positions(climb_atoms.get_positions() + displace)
+
+                tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
+                climb_energy = self._get_real_energy(climb_atoms) # real energy on real potential energy surface
+                if self.output_xyz:  # before local minimize
+                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,displace=displace)
+
                 self._local_minimize(climb_atoms)
+
                 # Write to climbing.info file (file handle is kept open)
                 if self.debug:
-                    print(f"Added Gaussian #{n}: gaussian_height={self.gaussian_height:.4f}, sigma={self.gaussian_width:.4f} Å, |d|={np.linalg.norm(N):.4f}")
+                    print(f"Added Gaussian #{n}: gaussian_height={self.gaussian_height:.4f}, sigma={Norm_dist:.4f} Å, |d|={np.linalg.norm(N):.4f}")
                     distance_0_org, angle_0_org = periodic_distance(init_atoms, climb_atoms, N)
                     distance_0_bas, angle_0_bas = periodic_distance(basin_atoms, climb_atoms, N)
                     climb_info_file.write(f"{step} 0 {distance_0_org:.4f} {angle_0_org:.4f} {distance_0_bas:.4f} {angle_0_bas:.4f}\n")
@@ -499,9 +513,9 @@ class CoSMoSSearch:
 
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
                 climb_energy = self._get_real_energy(climb_atoms) # real energy on real potential energy surface
+                if self.output_xyz: # after local minimize
+                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,displace=displace)
 
-                if self.output_xyz:
-                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,N=N.reshape(-1,3))
                 if self.debug:
                     # Write to climbing.info file (file handle is kept open)
                     distance_1_org, angle_1_org = periodic_distance(init_atoms, climb_atoms, N)
@@ -515,10 +529,12 @@ class CoSMoSSearch:
                 if n >= self.H:
                     print(f"\n--- Climb end ---\n n_gaussian={n}, reached maximum Gaussians")
                     break
-                if climb_energy <= basin_energy:
+                elif climb_energy <= basin_energy-0.05:
                     print(f"\n--- Climb end ---\n n_gaussian={n}, energy {climb_energy:.6f} eV <= basin {basin_energy:.6f} eV")
                     break
             
+            temp_average_dr, temp_max_dr = calc_average_max_displace(displace,self.mobile_mask,self.n_mobile)
+            print(f"n_mobile,Norm_dist, average_dr,max_dr: {self.n_mobile}, {Norm_dist:.3f}, {temp_average_dr:.3f}, {temp_max_dr:.3f}")
             # Algorithm Step 6: Remove all bias potentials and optimize on real potential energy surface
             new_basin_atoms=climb_atoms.copy()
             new_basin_atoms.calc = self.base_calc
@@ -526,7 +542,7 @@ class CoSMoSSearch:
             new_basin_energy = self._get_real_energy(new_basin_atoms)
 
             if self.output_xyz:
-                print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,N0=N0.reshape(-1,3))
+                print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,displace=displace0)
             
             # Algorithm Step 7: Use Metropolis criterion to accept or reject
             delta_E = new_basin_energy - basin_energy
@@ -862,3 +878,6 @@ class CoSMoSSearch:
             return N_mask / np.linalg.norm(N_mask)
         except:
             raise ValueError("Failed to normalize N vector")
+
+   
+        
